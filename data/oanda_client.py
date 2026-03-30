@@ -46,11 +46,16 @@ class OandaClient:
         self.client.request(r)
         return r.response.get("positions", [])
 
-    def place_market_order(self, pair, units, sl_price=None, tp_price=None):
+    def place_market_order(self, pair, units, sl_price=None, tp_price=None,
+                           trailing_distance=None):
         """
         Place a market order with optional stop-loss and take-profit.
-        units > 0 = buy, units < 0 = sell
-        sl_price / tp_price are absolute prices (GTC orders attached to the trade).
+        units > 0 = buy, units < 0 = sell.
+
+        trailing_distance: price-unit distance for a trailing stop (e.g. 0.0030 = 30 pips on EUR_USD).
+            When set, replaces sl_price with a trailing stop loss.
+        sl_price: absolute fixed stop-loss price (used when trailing_distance is None).
+        tp_price: absolute take-profit price (GTC, used regardless of SL type).
         """
         order = {
             "type": "MARKET",
@@ -59,7 +64,12 @@ class OandaClient:
             "timeInForce": "FOK",
             "positionFill": "DEFAULT",
         }
-        if sl_price is not None:
+        if trailing_distance is not None:
+            order["trailingStopLossOnFill"] = {
+                "distance": str(trailing_distance),
+                "timeInForce": "GTC",
+            }
+        elif sl_price is not None:
             order["stopLossOnFill"] = {
                 "price": str(sl_price),
                 "timeInForce": "GTC",

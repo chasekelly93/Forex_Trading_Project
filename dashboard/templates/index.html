@@ -600,6 +600,34 @@
       <div class="param-hint">Production default: 1:2 · Range: 1:1–1:4</div>
     </div>
 
+    <div class="test-param">
+      <label>
+        <span class="tip" data-tip="When ON, the stop loss follows the price as it moves in your favour, maintaining a fixed distance. If price reverses by the trailing distance, the trade closes — locking in whatever profit had accumulated. The fixed stop loss is replaced by the trailing stop. Take-profit still applies.">Trailing Stop Loss</span>
+      </label>
+      <div class="test-toggle-row">
+        <label class="switch">
+          <input type="checkbox" id="param-trailing" {% if test_params.trailing_stop %}checked{% endif %}
+            onchange="updateParam('trailing_stop', this.checked)">
+          <span class="slider-sw"></span>
+        </label>
+        <span id="param-trailing-label" style="font-size:13px; color:#f59e0b;">
+          {% if test_params.trailing_stop %}Enabled{% else %}Disabled{% endif %}
+        </span>
+      </div>
+      <div class="param-hint">Production default: OFF · replaces fixed SL</div>
+    </div>
+
+    <div class="test-param">
+      <label>
+        <span class="tip" data-tip="How far the trailing stop sits from the current best price. Wider = more room for normal pullbacks before closing. Tighter = locks in profit faster but gets stopped out on minor retracements. For H4 swing trades, 1.5–2× your stop loss distance is a reasonable starting point.">Trailing Distance (pips)</span>
+      </label>
+      <div class="param-value" id="val-trailing">{{ test_params.trailing_stop_pips }} pips</div>
+      <input type="range" min="10" max="100" step="5"
+        value="{{ test_params.trailing_stop_pips }}"
+        oninput="updateParamSlider('trailing_stop_pips', parseInt(this.value), 'val-trailing', v => v+' pips')">
+      <div class="param-hint">Production default: 30 pips · Range: 10–100</div>
+    </div>
+
   </div>
 
   <h3 style="margin-top:20px;">🔬 Analysis Thresholds — affect what signals reach Claude</h3>
@@ -1200,6 +1228,9 @@
     if (key === "require_h1_confirm") {
       document.getElementById("param-h1confirm-label").textContent = value ? "Required" : "Disabled";
     }
+    if (key === "trailing_stop") {
+      document.getElementById("param-trailing-label").textContent = value ? "Enabled" : "Disabled";
+    }
     fetch("/api/test-mode", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
@@ -1229,6 +1260,8 @@
       adx_threshold:         20,     // unlock trending regime in more markets
       mtf_daily_threshold:   0.15,   // Daily must be very strong to veto H4
       require_h1_confirm:    false,  // H4 fires at full strength without H1
+      trailing_stop:         true,   // trailing stop instead of fixed SL
+      trailing_stop_pips:    30,     // 30 pip trail
     };
     fetch("/api/test-mode", {
       method: "POST",
@@ -1249,6 +1282,8 @@
       adx_threshold:         25,
       mtf_daily_threshold:   0.30,
       require_h1_confirm:    true,
+      trailing_stop:         false,
+      trailing_stop_pips:    30,
     };
     fetch("/api/test-mode", {
       method: "POST",

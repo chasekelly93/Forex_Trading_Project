@@ -100,6 +100,8 @@ _test_params = {
     "mtf_daily_threshold": 0.30,
     "require_h1_confirm":  True,
     "take_profit_ratio":   2.0,
+    "trailing_stop":       False,
+    "trailing_stop_pips":  30,
 }
 
 

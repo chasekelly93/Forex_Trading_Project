@@ -33,8 +33,10 @@ DEFAULT_PARAMS = {
     "max_risk_pct":       MAX_RISK_PER_TRADE_PCT,
     "max_positions":      MAX_OPEN_POSITIONS,
     "max_daily_loss_pct": MAX_DAILY_LOSS_PCT,
-    "stop_pips":          20,
-    "take_profit_ratio":  2.0,   # TP distance = stop_pips × this ratio (2.0 = 2:1 R:R)
+    "stop_pips":           20,
+    "take_profit_ratio":   2.0,   # TP distance = stop_pips × this ratio (2.0 = 2:1 R:R)
+    "trailing_stop":       False, # replace fixed SL with a trailing stop
+    "trailing_stop_pips":  30,    # trailing distance in pips (default 1.5× stop_pips)
 }
 
 
@@ -132,6 +134,15 @@ class RiskEngine:
             tp_price = round(bid - tp_dist, decimals)
 
         return sl_price, tp_price
+
+    def calculate_trailing_distance(self, pair, trailing_stop_pips):
+        """
+        Convert pips to the price-unit distance OANDA expects for trailingStopLossOnFill.
+        e.g. EUR_USD 30 pips → 0.00300, USD_JPY 30 pips → 0.300
+        """
+        pip      = PIP_SIZE.get(pair, 0.0001)
+        decimals = PRICE_DECIMALS.get(pair, DEFAULT_DECIMALS)
+        return round(trailing_stop_pips * pip, decimals)
 
     def approve(self, pair, thesis, params=None):
         """

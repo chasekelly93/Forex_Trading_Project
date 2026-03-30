@@ -33,18 +33,32 @@ class Executor:
 
         # Calculate SL/TP
         p = {**DEFAULT_PARAMS, **(params or {})}
-        sl_price, tp_price = None, None
+        sl_price, tp_price, trailing_distance = None, None, None
         try:
-            sl_price, tp_price = self.risk.calculate_sl_tp(
+            _, tp_price = self.risk.calculate_sl_tp(
                 pair, direction, p["stop_pips"], p.get("take_profit_ratio", 2.0)
             )
-            print(f"[SL/TP] SL: {sl_price} | TP: {tp_price}")
+            if p.get("trailing_stop"):
+                trailing_distance = self.risk.calculate_trailing_distance(
+                    pair, p.get("trailing_stop_pips", p["stop_pips"])
+                )
+                print(f"[SL/TP] Trailing: {trailing_distance} price units | TP: {tp_price}")
+            else:
+                sl_price, _ = self.risk.calculate_sl_tp(
+                    pair, direction, p["stop_pips"], p.get("take_profit_ratio", 2.0)
+                )
+                print(f"[SL/TP] Fixed SL: {sl_price} | TP: {tp_price}")
         except Exception as e:
-            print(f"[SL/TP ERROR] Could not calculate SL/TP: {e} — placing without")
+            print(f"[SL/TP ERROR] {e} — placing without SL/TP")
 
         # Place the order
         try:
-            response = self.client.place_market_order(pair, units, sl_price=sl_price, tp_price=tp_price)
+            response = self.client.place_market_order(
+                pair, units,
+                sl_price=sl_price,
+                tp_price=tp_price,
+                trailing_distance=trailing_distance,
+            )
             order_fill = response.get("orderFillTransaction", {})
             fill_price = float(order_fill.get("price", 0))
             trade_id = order_fill.get("tradeOpened", {}).get("tradeID")
