@@ -4,7 +4,7 @@ OANDA API client — all communication with OANDA goes through here.
 import oandapyV20
 import oandapyV20.endpoints.instruments as instruments
 import oandapyV20.endpoints.accounts as accounts
-import oandapyV20.endpoints.orders as orders
+import oandapyV20.endpoints.orders as orders_ep
 import oandapyV20.endpoints.positions as positions
 import oandapyV20.endpoints.pricing as pricing
 from config import OANDA_API_KEY, OANDA_ACCOUNT_ID, OANDA_ENVIRONMENT
@@ -60,7 +60,7 @@ class OandaClient:
                 "positionFill": "DEFAULT"
             }
         }
-        r = orders.Orders(accountID=self.account_id, data=data)
+        r = orders_ep.OrderCreate(accountID=self.account_id, data=data)
         self.client.request(r)
         return r.response
 

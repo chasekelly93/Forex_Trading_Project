@@ -56,7 +56,9 @@ class Executor:
             }
 
         except Exception as e:
+            import traceback
             print(f"[ORDER ERROR] {e}")
+            traceback.print_exc()
             return {"status": "error", "pair": pair, "error": str(e)}
 
     def close_all_positions(self):

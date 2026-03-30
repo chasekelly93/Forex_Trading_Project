@@ -111,6 +111,10 @@ def api_resume():
 @app.route("/api/close-all", methods=["POST"])
 def api_close_all():
     results = executor.close_all_positions()
+    # Mark all open trades as closed in DB
+    with _conn() as conn:
+        conn.execute("UPDATE trades SET status='closed', closed=datetime('now') WHERE status='open'")
+        conn.commit()
     return jsonify({"results": results})
 
 
@@ -118,6 +122,16 @@ def api_close_all():
 def api_close_pair(instrument):
     try:
         resp = client.close_position(instrument)
+
+        # Mark open trades for this pair as closed in DB
+        with _conn() as conn:
+            fill = resp.get("relatedTransactionIDs", [])
+            conn.execute(
+                "UPDATE trades SET status='closed', closed=datetime('now') WHERE pair=? AND status='open'",
+                (instrument,)
+            )
+            conn.commit()
+
         return jsonify({"status": "closed", "instrument": instrument})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -161,7 +175,9 @@ def api_run_cycle():
 
                     if direction not in ("NO_TRADE", "ERROR"):
                         result = executor.execute(thesis)
-                        _cycle_log.append(f"{pair} execution: {result.get('status')}")
+                        status = result.get('status')
+                        detail = result.get('error') or result.get('reason') or ''
+                        _cycle_log.append(f"{pair} execution: {status} {('— ' + detail) if detail else ''}")
                 except Exception as e:
                     _cycle_log.append(f"{pair} error: {str(e)}")
 

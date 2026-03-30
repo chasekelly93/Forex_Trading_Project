@@ -118,7 +118,13 @@ class RiskEngine:
         if not ok:
             return False, msg, 0
 
-        # Check 2: max positions
+        # Check 2: already have a position in this pair?
+        open_positions = self.client.get_open_positions()
+        open_pairs = [p["instrument"] for p in open_positions]
+        if pair in open_pairs:
+            return False, f"Already have an open position in {pair}", 0
+
+        # Check 3: max positions
         ok, msg = self.check_max_positions()
         if not ok:
             return False, msg, 0
