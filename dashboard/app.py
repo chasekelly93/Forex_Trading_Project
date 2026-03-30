@@ -134,13 +134,29 @@ def api_resume():
     return jsonify({"status": "resumed"})
 
 
+def _extract_fill(resp):
+    """Pull close_price and pnl from an OANDA PositionClose response."""
+    fill = resp.get("longOrderFillTransaction") or resp.get("shortOrderFillTransaction") or {}
+    try:
+        close_price = float(fill.get("price", 0)) or None
+        pnl         = float(fill.get("pl", 0)) if fill.get("pl") is not None else None
+    except (TypeError, ValueError):
+        close_price, pnl = None, None
+    return close_price, pnl
+
+
 @app.route("/api/close-all", methods=["POST"])
 def api_close_all():
     global _cycle_cancelled
-    _cycle_cancelled = True  # abort any running cycle immediately
+    _cycle_cancelled = True
     results = executor.close_all_positions()
+    # close_all_positions closes each pair individually; update DB per pair using fill data
+    # Results come back without fill details so mark closed without price/pnl here —
+    # individual closes via api_close_pair will have full fill data.
     with _conn() as conn:
-        conn.execute("UPDATE trades SET status='closed', closed=datetime('now') WHERE status='open'")
+        conn.execute(
+            "UPDATE trades SET status='closed', closed=datetime('now') WHERE status='open'"
+        )
         conn.commit()
     return jsonify({"results": results})
 
@@ -148,20 +164,22 @@ def api_close_all():
 @app.route("/api/close/<instrument>", methods=["POST"])
 def api_close_pair(instrument):
     global _cycle_cancelled
-    _cycle_cancelled = True  # abort cycle so it doesn't re-open this pair
+    _cycle_cancelled = True
     try:
         resp = client.close_position(instrument)
+        close_price, pnl = _extract_fill(resp)
 
-        # Mark open trades for this pair as closed in DB
         with _conn() as conn:
-            fill = resp.get("relatedTransactionIDs", [])
             conn.execute(
-                "UPDATE trades SET status='closed', closed=datetime('now') WHERE pair=? AND status='open'",
-                (instrument,)
+                """UPDATE trades
+                   SET status='closed', closed=datetime('now'),
+                       close_price=?, pnl=?
+                   WHERE pair=? AND status='open'""",
+                (close_price, pnl, instrument)
             )
             conn.commit()
 
-        return jsonify({"status": "closed", "instrument": instrument})
+        return jsonify({"status": "closed", "instrument": instrument, "pnl": pnl})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
