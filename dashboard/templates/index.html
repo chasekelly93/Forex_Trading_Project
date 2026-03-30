@@ -77,6 +77,108 @@
     }
     .btn-tooltip-toggle.active { border-color: #7c6af7; color: #7c6af7; }
 
+    .btn-test { background: transparent; border: 1px solid #f59e0b; color: #f59e0b; font-size: 12px; padding: 6px 12px; }
+    .btn-test.active { background: #f59e0b; color: #000; font-weight: 600; }
+
+    /* Test mode banner */
+    #test-banner {
+      background: repeating-linear-gradient(
+        45deg, #1a1400, #1a1400 10px, #1f1900 10px, #1f1900 20px
+      );
+      border-top: 2px solid #f59e0b;
+      border-bottom: 2px solid #f59e0b;
+      padding: 8px 32px;
+      font-size: 12px;
+      color: #f59e0b;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      letter-spacing: 0.5px;
+    }
+
+    /* Test mode settings panel */
+    #test-panel {
+      background: #110e00;
+      border-bottom: 1px solid #f59e0b44;
+      padding: 20px 32px;
+    }
+
+    #test-panel h3 {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: #f59e0b;
+      margin-bottom: 16px;
+    }
+
+    .test-params {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 20px;
+    }
+
+    .test-param label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: #94a3b8;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 8px;
+    }
+
+    .test-param input[type="number"],
+    .test-param input[type="range"] {
+      width: 100%;
+      background: #1a1d27;
+      border: 1px solid #2d3148;
+      border-radius: 6px;
+      color: #e2e8f0;
+      padding: 7px 10px;
+      font-size: 14px;
+    }
+
+    .test-param input[type="range"] {
+      padding: 4px 0;
+      accent-color: #f59e0b;
+    }
+
+    .test-param .param-value {
+      font-size: 18px;
+      font-weight: 600;
+      color: #f59e0b;
+      margin-bottom: 4px;
+    }
+
+    .test-param .param-hint {
+      font-size: 11px;
+      color: #4b5563;
+      margin-top: 4px;
+    }
+
+    .test-toggle-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 4px;
+    }
+
+    /* Toggle switch for bypass_hours */
+    .switch { position: relative; display: inline-block; width: 36px; height: 20px; }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .slider-sw {
+      position: absolute; cursor: pointer; inset: 0;
+      background: #2d3148; border-radius: 20px; transition: 0.2s;
+    }
+    .slider-sw::before {
+      content: ''; position: absolute;
+      height: 14px; width: 14px; left: 3px; bottom: 3px;
+      background: #64748b; border-radius: 50%; transition: 0.2s;
+    }
+    input:checked + .slider-sw { background: #f59e0b44; }
+    input:checked + .slider-sw::before { transform: translateX(16px); background: #f59e0b; }
+
     main { padding: 28px 32px; max-width: 1400px; margin: 0 auto; }
 
     .cards {
@@ -305,8 +407,103 @@
       data-tip="">
       ? Tooltips ON
     </button>
+    <button id="test-btn" class="btn btn-test {% if test_mode %}active{% endif %}"
+      onclick="toggleTestMode()"
+      data-tip="">
+      🧪 Test Mode {% if test_mode %}ON{% else %}OFF{% endif %}
+    </button>
   </div>
 </header>
+
+{% if test_mode %}
+<div id="test-banner">
+  <span>⚠</span>
+  <strong>TEST MODE ACTIVE</strong>
+  <span>—</span>
+  <span>Peak hour restriction bypassed. Custom risk parameters are in effect. Trades will still execute.</span>
+</div>
+{% endif %}
+
+{% if test_mode %}
+<div id="test-panel">
+  <h3>🧪 Test Mode Parameters — changes apply on next Run Analysis</h3>
+  <div class="test-params">
+
+    <div class="test-param">
+      <label>
+        <span class="tip" data-tip="When ON, the agent ignores the 13:00–17:00 UTC peak hours window and trades at any time of day. Useful for testing outside market hours. In production this should always be OFF.">Bypass Peak Hours</span>
+      </label>
+      <div class="test-toggle-row">
+        <label class="switch">
+          <input type="checkbox" id="param-bypass" {% if test_params.bypass_hours %}checked{% endif %}
+            onchange="updateParam('bypass_hours', this.checked)">
+          <span class="slider-sw"></span>
+        </label>
+        <span id="param-bypass-label" style="font-size:13px; color:#f59e0b;">
+          {% if test_params.bypass_hours %}Bypassed{% else %}Enforced{% endif %}
+        </span>
+      </div>
+      <div class="param-hint">Production default: OFF (enforced)</div>
+    </div>
+
+    <div class="test-param">
+      <label>
+        <span class="tip" data-tip="The minimum confidence score Claude must assign before a trade is executed. Lower = more trades fire (including weaker signals). Higher = fewer but higher-quality trades. Production default is 60%.">Min Confidence Threshold</span>
+      </label>
+      <div class="param-value" id="val-confidence">{{ (test_params.confidence_min * 100) | int }}%</div>
+      <input type="range" min="30" max="95" step="5"
+        value="{{ (test_params.confidence_min * 100) | int }}"
+        oninput="updateParamSlider('confidence_min', this.value/100, 'val-confidence', v => Math.round(v*100)+'%')">
+      <div class="param-hint">Production default: 60% · Range: 30–95%</div>
+    </div>
+
+    <div class="test-param">
+      <label>
+        <span class="tip" data-tip="What percentage of your account balance to risk on each individual trade. This directly controls position size — higher % = larger positions = bigger wins AND bigger losses. 1% is considered conservative. Never exceed 2% in live trading.">Risk Per Trade (%)</span>
+      </label>
+      <div class="param-value" id="val-risk">{{ test_params.max_risk_pct }}%</div>
+      <input type="range" min="0.25" max="5" step="0.25"
+        value="{{ test_params.max_risk_pct }}"
+        oninput="updateParamSlider('max_risk_pct', parseFloat(this.value), 'val-risk', v => v+'%')">
+      <div class="param-hint">Production default: 1% · Range: 0.25–5%</div>
+    </div>
+
+    <div class="test-param">
+      <label>
+        <span class="tip" data-tip="Maximum number of trades that can be open simultaneously. Increasing this lets the agent spread across more pairs at once but also multiplies your total risk exposure. Keep this low when testing a new strategy.">Max Open Positions</span>
+      </label>
+      <div class="param-value" id="val-positions">{{ test_params.max_positions }}</div>
+      <input type="range" min="1" max="7" step="1"
+        value="{{ test_params.max_positions }}"
+        oninput="updateParamSlider('max_positions', parseInt(this.value), 'val-positions', v => v)">
+      <div class="param-hint">Production default: 3 · Range: 1–7</div>
+    </div>
+
+    <div class="test-param">
+      <label>
+        <span class="tip" data-tip="The daily loss kill switch. If your account drops by this percentage from the day's starting balance, the agent stops placing any new trades for the rest of the day. Protects against a bad run spiraling out of control.">Daily Loss Kill Switch (%)</span>
+      </label>
+      <div class="param-value" id="val-drawdown">{{ test_params.max_daily_loss_pct }}%</div>
+      <input type="range" min="1" max="10" step="0.5"
+        value="{{ test_params.max_daily_loss_pct }}"
+        oninput="updateParamSlider('max_daily_loss_pct', parseFloat(this.value), 'val-drawdown', v => v+'%')">
+      <div class="param-hint">Production default: 3% · Range: 1–10%</div>
+    </div>
+
+    <div class="test-param">
+      <label>
+        <span class="tip" data-tip="Assumed stop loss distance in pips used for position sizing calculations. A pip is the smallest price move in forex (0.0001 for most pairs). Wider stop = smaller position size for the same risk %. Tighter stop = larger position. This is a sizing input only — actual stop orders are not yet placed automatically.">Stop Loss Distance (pips)</span>
+      </label>
+      <div class="param-value" id="val-pips">{{ test_params.stop_pips }} pips</div>
+      <input type="range" min="5" max="100" step="5"
+        value="{{ test_params.stop_pips }}"
+        oninput="updateParamSlider('stop_pips', parseInt(this.value), 'val-pips', v => v+' pips')">
+      <div class="param-hint">Production default: 20 pips · Range: 5–100</div>
+    </div>
+
+  </div>
+</div>
+{% endif %}
 
 <main>
 
@@ -684,6 +881,37 @@
     fetch(`/api/close/${instrument}`, { method: "POST" })
       .then(r => r.json())
       .then(d => { toast(`${instrument} closed`); setTimeout(() => location.reload(), 800); });
+  }
+
+  // ── Test Mode ────────────────────────────────────────────────────────────
+  function toggleTestMode() {
+    const current = document.getElementById("test-btn").classList.contains("active");
+    fetch("/api/test-mode", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ enabled: !current })
+    }).then(() => location.reload());
+  }
+
+  function updateParam(key, value) {
+    // Immediate visual feedback for toggle
+    if (key === "bypass_hours") {
+      document.getElementById("param-bypass-label").textContent = value ? "Bypassed" : "Enforced";
+    }
+    fetch("/api/test-mode", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ params: { [key]: value } })
+    });
+  }
+
+  function updateParamSlider(key, value, displayId, fmt) {
+    document.getElementById(displayId).textContent = fmt(value);
+    fetch("/api/test-mode", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ params: { [key]: value } })
+    });
   }
 
   // Auto-refresh account numbers every 30s

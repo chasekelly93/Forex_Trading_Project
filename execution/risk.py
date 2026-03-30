@@ -1,6 +1,7 @@
 """
 Risk engine — all position sizing and safety checks live here.
 Nothing gets executed unless this module approves it first.
+Accepts an optional `params` dict to override defaults (used by Test Mode).
 """
 from datetime import datetime, timezone
 from config import (
@@ -12,11 +13,21 @@ from data.oanda_client import OandaClient
 from data.store import get_open_trades
 
 
-# Pip sizes per pair (how much 1 pip is worth in price terms)
+# Pip sizes per pair
 PIP_SIZE = {
     "EUR_USD": 0.0001, "GBP_USD": 0.0001, "AUD_USD": 0.0001,
     "NZD_USD": 0.0001, "USD_CAD": 0.0001, "USD_CHF": 0.0001,
     "USD_JPY": 0.01,
+}
+
+# Default params (used when test mode is off)
+DEFAULT_PARAMS = {
+    "bypass_hours":      False,
+    "confidence_min":    0.60,
+    "max_risk_pct":      MAX_RISK_PER_TRADE_PCT,
+    "max_positions":     MAX_OPEN_POSITIONS,
+    "max_daily_loss_pct": MAX_DAILY_LOSS_PCT,
+    "stop_pips":         20,
 }
 
 
@@ -28,150 +39,112 @@ class RiskEngine:
     def get_account_state(self):
         acct = self.client.get_account()
         return {
-            "balance":    float(acct["balance"]),
-            "nav":        float(acct["NAV"]),
-            "open_pnl":   float(acct["unrealizedPL"]),
+            "balance":     float(acct["balance"]),
+            "nav":         float(acct["NAV"]),
+            "open_pnl":    float(acct["unrealizedPL"]),
             "margin_used": float(acct["marginUsed"]),
         }
 
-    def check_max_positions(self):
-        """Return True if we're under the max open position limit."""
-        open_trades = get_open_trades()
-        if len(open_trades) >= MAX_OPEN_POSITIONS:
-            return False, f"Max positions reached ({len(open_trades)}/{MAX_OPEN_POSITIONS})"
-        return True, f"Positions OK ({len(open_trades)}/{MAX_OPEN_POSITIONS})"
+    def check_market_hours(self, bypass=False):
+        if bypass:
+            return True, "Market hours bypassed (Test Mode)"
 
-    def check_drawdown(self):
-        """
-        Return True if daily loss is within limit.
-        Compares current NAV to the balance at session start.
-        """
-        state = self.get_account_state()
-        balance = state["balance"]
-
-        if self._daily_start_balance is None:
-            self._daily_start_balance = balance
-
-        loss_pct = ((self._daily_start_balance - state["nav"]) / self._daily_start_balance) * 100
-
-        if loss_pct >= MAX_DAILY_LOSS_PCT:
-            return False, f"Kill switch triggered: daily loss {loss_pct:.2f}% >= {MAX_DAILY_LOSS_PCT}%"
-
-        return True, f"Drawdown OK: {loss_pct:.2f}% of {MAX_DAILY_LOSS_PCT}% limit"
-
-    def check_confidence(self, thesis, min_confidence=0.60):
-        """Only trade if Claude's confidence meets the minimum threshold."""
-        conf = thesis.get("confidence", 0)
-        if conf < min_confidence:
-            return False, f"Confidence too low: {conf:.0%} < {min_confidence:.0%} required"
-        return True, f"Confidence OK: {conf:.0%}"
-
-    def calculate_units(self, pair, stop_pips, balance=None):
-        """
-        Calculate position size in units based on:
-        - Account balance
-        - Max risk % per trade
-        - Distance to stop loss in pips
-
-        For USD-quoted pairs (EUR_USD etc): straightforward
-        For JPY pairs and inverted pairs: pip value differs
-        """
-        if balance is None:
-            balance = self.get_account_state()["balance"]
-
-        risk_amount = balance * (MAX_RISK_PER_TRADE_PCT / 100)
-        pip = PIP_SIZE.get(pair, 0.0001)
-
-        # Standard lot = 100,000 units, 1 pip on EUR_USD = $10 per lot
-        # For USD-base quote pairs, pip value per unit = pip size
-        # units = risk_amount / (stop_pips * pip_value_per_unit)
-        pip_value_per_unit = pip  # $0.0001 per unit for most pairs
-
-        # For pairs where USD is the base (USD_JPY, USD_CAD, USD_CHF),
-        # pip value in USD = pip / current_price (approximated)
-        if pair.startswith("USD_"):
-            # Get current price to convert
-            prices = self.client.get_live_price([pair])
-            mid = (float(prices[0]["bids"][0]["price"]) + float(prices[0]["asks"][0]["price"])) / 2
-            pip_value_per_unit = pip / mid
-
-        units = int(risk_amount / (stop_pips * pip_value_per_unit))
-
-        # Cap at reasonable size — never more than 1 standard lot in practice mode
-        units = min(units, 100_000)
-        return units
-
-    def check_market_hours(self):
-        """
-        Only trade during peak session: London/NY overlap 13:00–17:00 UTC, Mon–Fri.
-        This is when volume is highest, spreads are tightest, and signals are most reliable.
-        Returns (ok, message).
-        """
         now = datetime.now(timezone.utc)
-        weekday = now.weekday()  # 0=Mon, 5=Sat, 6=Sun
+        weekday = now.weekday()
         hour = now.hour
 
-        # Weekend block
         if weekday == 5 and hour >= 22:
             return False, "Market closed — weekend (Saturday after 22:00 UTC)"
         if weekday == 6 and hour < 22:
             return False, "Market closed — weekend (Sunday before 22:00 UTC)"
-
-        # Off-peak block — only trade during London/NY overlap
         if not (13 <= hour < 17):
             return False, f"Off-peak hours ({hour:02d}:00 UTC) — agent executes only 13:00–17:00 UTC (London/NY overlap)"
 
         return True, "Peak session active (London/NY overlap)"
 
-    def approve(self, pair, thesis):
+    def check_confidence(self, thesis, min_confidence):
+        conf = thesis.get("confidence", 0)
+        if conf < min_confidence:
+            return False, f"Confidence too low: {conf:.0%} < {min_confidence:.0%} required"
+        return True, f"Confidence OK: {conf:.0%}"
+
+    def check_max_positions(self, max_positions):
+        open_trades = get_open_trades()
+        if len(open_trades) >= max_positions:
+            return False, f"Max positions reached ({len(open_trades)}/{max_positions})"
+        return True, f"Positions OK ({len(open_trades)}/{max_positions})"
+
+    def check_drawdown(self, max_daily_loss_pct):
+        state = self.get_account_state()
+        if self._daily_start_balance is None:
+            self._daily_start_balance = state["balance"]
+
+        loss_pct = ((self._daily_start_balance - state["nav"]) / self._daily_start_balance) * 100
+
+        if loss_pct >= max_daily_loss_pct:
+            return False, f"Kill switch triggered: daily loss {loss_pct:.2f}% >= {max_daily_loss_pct}%"
+        return True, f"Drawdown OK: {loss_pct:.2f}% of {max_daily_loss_pct}% limit"
+
+    def calculate_units(self, pair, stop_pips, max_risk_pct, balance=None):
+        if balance is None:
+            balance = self.get_account_state()["balance"]
+
+        risk_amount = balance * (max_risk_pct / 100)
+        pip = PIP_SIZE.get(pair, 0.0001)
+        pip_value_per_unit = pip
+
+        if pair.startswith("USD_"):
+            prices = self.client.get_live_price([pair])
+            mid = (float(prices[0]["bids"][0]["price"]) + float(prices[0]["asks"][0]["price"])) / 2
+            pip_value_per_unit = pip / mid
+
+        units = int(risk_amount / (stop_pips * pip_value_per_unit))
+        return min(units, 100_000)
+
+    def approve(self, pair, thesis, params=None):
         """
-        Run all checks. Returns (approved: bool, reason: str, units: int).
-        This is the single gate every trade must pass through.
+        Run all checks. Returns (approved, reason, units).
+        Pass a params dict to override defaults (Test Mode).
         """
+        p = {**DEFAULT_PARAMS, **(params or {})}
         direction = thesis.get("direction")
 
         if direction == "NO_TRADE":
             return False, "Claude recommended NO_TRADE", 0
-
         if direction == "ERROR":
             return False, "Analysis error — skipping", 0
 
-        # Check 1: market hours
-        ok, msg = self.check_market_hours()
+        # 1. Market hours
+        ok, msg = self.check_market_hours(bypass=p["bypass_hours"])
         if not ok:
             return False, msg, 0
 
-        # Check 2: confidence
-        ok, msg = self.check_confidence(thesis)
+        # 2. Confidence
+        ok, msg = self.check_confidence(thesis, p["confidence_min"])
         if not ok:
             return False, msg, 0
 
-        # Check 2: already have a position in this pair?
+        # 3. No duplicate pair
         open_positions = self.client.get_open_positions()
-        open_pairs = [p["instrument"] for p in open_positions]
+        open_pairs = [pos["instrument"] for pos in open_positions]
         if pair in open_pairs:
             return False, f"Already have an open position in {pair}", 0
 
-        # Check 3: max positions
-        ok, msg = self.check_max_positions()
+        # 4. Max positions
+        ok, msg = self.check_max_positions(p["max_positions"])
         if not ok:
             return False, msg, 0
 
-        # Check 3: drawdown kill switch
-        ok, msg = self.check_drawdown()
+        # 5. Drawdown kill switch
+        ok, msg = self.check_drawdown(p["max_daily_loss_pct"])
         if not ok:
             return False, msg, 0
 
-        # Position sizing — estimate stop distance in pips from ATR
-        # Claude gives stop as text; we'll use 2x ATR as a safe default
+        # Position sizing
         state = self.get_account_state()
-        pip = PIP_SIZE.get(pair, 0.0001)
-
-        # Fallback: 20 pip stop if we can't parse it
-        stop_pips = 20
-        units = self.calculate_units(pair, stop_pips, balance=state["balance"])
+        units = self.calculate_units(pair, p["stop_pips"], p["max_risk_pct"], balance=state["balance"])
 
         if direction == "SELL":
-            units = -units  # negative = sell
+            units = -units
 
         return True, "All checks passed", units

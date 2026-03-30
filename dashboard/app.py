@@ -22,6 +22,16 @@ _cycle_running = False
 _cycle_cancelled = False
 _cycle_log = []
 
+_test_mode = False
+_test_params = {
+    "bypass_hours":       True,
+    "confidence_min":     0.60,
+    "max_risk_pct":       1.0,
+    "max_positions":      3,
+    "max_daily_loss_pct": 3.0,
+    "stop_pips":          20,
+}
+
 
 def _conn():
     return sqlite3.connect(DB_PATH)
@@ -77,6 +87,8 @@ def index():
         trades=trades,
         snapshots=snapshots,
         paused=_agent_paused,
+        test_mode=_test_mode,
+        test_params=_test_params,
     )
 
 
@@ -146,6 +158,18 @@ def api_paused():
     return jsonify({"paused": _agent_paused})
 
 
+@app.route("/api/test-mode", methods=["GET", "POST"])
+def api_test_mode():
+    global _test_mode, _test_params
+    if request.method == "POST":
+        data = request.get_json()
+        if "enabled" in data:
+            _test_mode = bool(data["enabled"])
+        if "params" in data:
+            _test_params.update(data["params"])
+    return jsonify({"test_mode": _test_mode, "params": _test_params})
+
+
 @app.route("/api/run-cycle", methods=["POST"])
 def api_run_cycle():
     global _cycle_running, _cycle_log
@@ -156,11 +180,13 @@ def api_run_cycle():
     if _agent_paused:
         return jsonify({"status": "paused", "message": "Agent is paused — resume it first"})
 
+    active_test_mode = _test_mode
+    active_params = dict(_test_params) if _test_mode else None
+
     def run():
         global _cycle_running, _cycle_cancelled, _cycle_log
         from config import PAIRS
         from agent.claude_agent import analyze
-        from data.store import save_snapshot
 
         _cycle_running = True
         _cycle_cancelled = False
@@ -170,10 +196,12 @@ def api_run_cycle():
             state = executor.snapshot_account()
             _cycle_log.append(f"Account: ${state['balance']:,.2f} balance | ${state['open_pnl']:,.2f} open P&L")
 
-            # Show market hours status upfront
-            mkt_ok, mkt_msg = executor.risk.check_market_hours()
-            if not mkt_ok:
-                _cycle_log.append(f"⚠ {mkt_msg} — signals will generate but no orders will be placed.")
+            if active_test_mode:
+                _cycle_log.append(f"🧪 TEST MODE — hours bypassed, custom risk params active")
+            else:
+                mkt_ok, mkt_msg = executor.risk.check_market_hours()
+                if not mkt_ok:
+                    _cycle_log.append(f"⚠ {mkt_msg} — signals will generate but no orders will be placed.")
 
             for pair in PAIRS:
                 if _cycle_cancelled:
@@ -188,7 +216,7 @@ def api_run_cycle():
                     _cycle_log.append(f"{pair}: {direction} @ {confidence:.0%}")
 
                     if direction not in ("NO_TRADE", "ERROR"):
-                        result = executor.execute(thesis)
+                        result = executor.execute(thesis, params=active_params)
                         status = result.get('status')
                         detail = result.get('error') or result.get('reason') or ''
                         _cycle_log.append(f"{pair} execution: {status} {('— ' + detail) if detail else ''}")

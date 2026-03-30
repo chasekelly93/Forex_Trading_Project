@@ -12,9 +12,10 @@ class Executor:
         self.client = OandaClient()
         self.risk = RiskEngine()
 
-    def execute(self, thesis):
+    def execute(self, thesis, params=None):
         """
         Main entry point. Runs risk checks, then places the trade if approved.
+        Pass params dict to override risk defaults (Test Mode).
         Returns a result dict describing what happened.
         """
         pair = thesis["pair"]
@@ -22,7 +23,7 @@ class Executor:
 
         print(f"\n[EXECUTOR] {pair} | Direction: {direction} | Confidence: {thesis.get('confidence', 0):.0%}")
 
-        approved, reason, units = self.risk.approve(pair, thesis)
+        approved, reason, units = self.risk.approve(pair, thesis, params=params)
 
         if not approved:
             print(f"[BLOCKED] {reason}")
