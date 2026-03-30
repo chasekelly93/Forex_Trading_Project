@@ -69,15 +69,16 @@ def build_prompt(pair, technicals, fundamentals, correlation_warning=None):
 Respond with JSON only."""
 
 
-def analyze(pair, all_signals=None):
+def analyze(pair, all_signals=None, params=None):
     """
     Run full analysis on a pair and return a structured trade thesis.
     Pass all_signals dict to enable correlation checks across pairs.
+    Pass params dict to override analysis thresholds (Test Mode).
     """
     feed = PriceFeed()
 
     print(f"[{pair}] Fetching technicals...")
-    technicals = analyze_pair(feed, pair)
+    technicals = analyze_pair(feed, pair, params=params)
 
     # Store result so correlation check can reference it
     if all_signals is not None:
@@ -126,13 +127,13 @@ def analyze(pair, all_signals=None):
     return thesis
 
 
-def analyze_all(pairs):
+def analyze_all(pairs, params=None):
     """Run analysis on every pair, passing a shared signals dict for correlation checks."""
     results = {}
     all_signals = {}
     for pair in pairs:
         try:
-            results[pair] = analyze(pair, all_signals=all_signals)
+            results[pair] = analyze(pair, all_signals=all_signals, params=params)
         except Exception as e:
             print(f"[ERROR] {pair}: {e}")
             results[pair] = {"pair": pair, "direction": "ERROR", "error": str(e)}

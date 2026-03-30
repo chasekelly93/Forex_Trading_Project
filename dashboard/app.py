@@ -24,12 +24,17 @@ _cycle_log = []
 
 _test_mode = False
 _test_params = {
-    "bypass_hours":       True,
-    "confidence_min":     0.60,
-    "max_risk_pct":       1.0,
-    "max_positions":      3,
-    "max_daily_loss_pct": 3.0,
-    "stop_pips":          20,
+    "bypass_hours":        True,
+    "confidence_min":      0.60,
+    "max_risk_pct":        1.0,
+    "max_positions":       3,
+    "max_daily_loss_pct":  3.0,
+    "stop_pips":           20,
+    # Analysis thresholds
+    "confluence_min":      0.60,
+    "adx_threshold":       25,
+    "mtf_daily_threshold": 0.30,
+    "require_h1_confirm":  True,
 }
 
 
@@ -190,6 +195,13 @@ def api_run_cycle():
     active_test_mode = _test_mode
     active_params = dict(_test_params) if _test_mode else None
 
+    # Analysis params (confluence, ADX, MTF thresholds) — only applied in test mode
+    _ANALYSIS_KEYS = {"confluence_min", "adx_threshold", "mtf_daily_threshold", "require_h1_confirm"}
+    active_analysis_params = (
+        {k: v for k, v in _test_params.items() if k in _ANALYSIS_KEYS}
+        if _test_mode else None
+    )
+
     def run():
         global _cycle_running, _cycle_cancelled, _cycle_log
         from config import PAIRS
@@ -218,7 +230,7 @@ def api_run_cycle():
 
                 _cycle_log.append(f"Analyzing {pair}...")
                 try:
-                    thesis = analyze(pair, all_signals=all_signals)
+                    thesis = analyze(pair, all_signals=all_signals, params=active_analysis_params)
                     direction = thesis.get("direction")
                     confidence = thesis.get("confidence", 0)
                     score = thesis.get("confluence_score", "—")

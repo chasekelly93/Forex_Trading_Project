@@ -111,6 +111,14 @@
       margin-bottom: 16px;
     }
 
+    #test-panel h3 + .test-params { margin-bottom: 0; }
+
+    #test-panel .section-divider {
+      border: none;
+      border-top: 1px solid #f59e0b22;
+      margin: 20px 0 0;
+    }
+
     .test-params {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -364,6 +372,10 @@
     .tip.tip-left::after { left: auto; right: 0; transform: none; }
     .tip.tip-left::before { left: auto; right: 12px; transform: none; }
 
+    /* Anchor tooltip from left edge (for first-column items near left viewport edge) */
+    .tip.tip-right::after { left: 0; right: auto; transform: none; }
+    .tip.tip-right::before { left: 12px; right: auto; transform: none; }
+
     /* Underline hint that something is hoverable */
     body.tooltips-on .tip { border-bottom: 1px dashed #3d4468; }
     body.tooltips-on th .tip, body.tooltips-on .btn.tip { border-bottom: none; }
@@ -431,7 +443,7 @@
 
     <div class="test-param">
       <label>
-        <span class="tip" data-tip="When ON, the agent ignores the 13:00–17:00 UTC peak hours window and trades at any time of day. Useful for testing outside market hours. In production this should always be OFF.">Bypass Peak Hours</span>
+        <span class="tip tip-right" data-tip="When ON, the agent ignores the 13:00–17:00 UTC peak hours window and trades at any time of day. Useful for testing outside market hours. In production this should always be OFF.">Bypass Peak Hours</span>
       </label>
       <div class="test-toggle-row">
         <label class="switch">
@@ -499,6 +511,61 @@
         value="{{ test_params.stop_pips }}"
         oninput="updateParamSlider('stop_pips', parseInt(this.value), 'val-pips', v => v+' pips')">
       <div class="param-hint">Production default: 20 pips · Range: 5–100</div>
+    </div>
+
+  </div>
+
+  <h3 style="margin-top:20px;">🔬 Analysis Thresholds — affect what signals reach Claude</h3>
+  <div class="test-params">
+
+    <div class="test-param">
+      <label>
+        <span class="tip tip-right" data-tip="The minimum technical confluence score (from -1.0 to +1.0) required for the system to suggest BUY or SELL to Claude. Lower = more setups get passed to Claude for analysis. At 0.3, even weak signals are forwarded. At 0.8, only very strong multi-indicator alignment gets through. Production default is 0.60.">Confluence Score Min</span>
+      </label>
+      <div class="param-value" id="val-confluence">{{ (test_params.confluence_min * 100) | int }}%</div>
+      <input type="range" min="20" max="85" step="5"
+        value="{{ (test_params.confluence_min * 100) | int }}"
+        oninput="updateParamSlider('confluence_min', this.value/100, 'val-confluence', v => Math.round(v*100)+'%')">
+      <div class="param-hint">Production default: 60% · Range: 20–85%</div>
+    </div>
+
+    <div class="test-param">
+      <label>
+        <span class="tip" data-tip="ADX (Average Directional Index) measures trend strength. When ADX is above this threshold, the market is considered 'trending' — EMA stacks, MACD, and ADX directional signals are all used (max score ±0.70). Below this, only RSI and Stochastic apply (max score ±0.20). Lowering this threshold unlocks trend signals in more markets.">ADX Trending Threshold</span>
+      </label>
+      <div class="param-value" id="val-adx">{{ test_params.adx_threshold }}</div>
+      <input type="range" min="15" max="35" step="1"
+        value="{{ test_params.adx_threshold }}"
+        oninput="updateParamSlider('adx_threshold', parseInt(this.value), 'val-adx', v => v)">
+      <div class="param-hint">Production default: 25 · Range: 15–35</div>
+    </div>
+
+    <div class="test-param">
+      <label>
+        <span class="tip" data-tip="How decisive the Daily timeframe trend must be before it can veto a conflicting H4 setup. At 0.30 (default), a Daily score of 0.30+ (moderate bullish) blocks any H4 bearish signal. Lower this to 0.10 and the Daily must be much more strongly trending before it overrides H4 — allowing more counter-trend setups through. Higher = stricter MTF filter.">MTF Daily Bias Min</span>
+      </label>
+      <div class="param-value" id="val-mtf">{{ (test_params.mtf_daily_threshold * 100) | int }}%</div>
+      <input type="range" min="10" max="60" step="5"
+        value="{{ (test_params.mtf_daily_threshold * 100) | int }}"
+        oninput="updateParamSlider('mtf_daily_threshold', this.value/100, 'val-mtf', v => Math.round(v*100)+'%')">
+      <div class="param-hint">Production default: 30% · Range: 10–60%</div>
+    </div>
+
+    <div class="test-param">
+      <label>
+        <span class="tip" data-tip="When ON, the H4 confluence score is reduced by 30% if the H1 (1-hour) timeframe doesn't agree with the direction. This acts as a timing filter — it ensures you're not entering a 4-hour setup when the short-term momentum is still against you. Turn OFF to fire H4 signals at full strength regardless of H1.">Require H1 Confirmation</span>
+      </label>
+      <div class="test-toggle-row">
+        <label class="switch">
+          <input type="checkbox" id="param-h1confirm" {% if test_params.require_h1_confirm %}checked{% endif %}
+            onchange="updateParam('require_h1_confirm', this.checked)">
+          <span class="slider-sw"></span>
+        </label>
+        <span id="param-h1confirm-label" style="font-size:13px; color:#f59e0b;">
+          {% if test_params.require_h1_confirm %}Required{% else %}Disabled{% endif %}
+        </span>
+      </div>
+      <div class="param-hint">Production default: ON (required)</div>
     </div>
 
   </div>
@@ -909,9 +976,12 @@
   }
 
   function updateParam(key, value) {
-    // Immediate visual feedback for toggle
+    // Immediate visual feedback for toggles
     if (key === "bypass_hours") {
       document.getElementById("param-bypass-label").textContent = value ? "Bypassed" : "Enforced";
+    }
+    if (key === "require_h1_confirm") {
+      document.getElementById("param-h1confirm-label").textContent = value ? "Required" : "Disabled";
     }
     fetch("/api/test-mode", {
       method: "POST",

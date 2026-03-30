@@ -24,10 +24,11 @@ CORRELATED_PAIRS = [
 ]
 
 
-def score_candle(df):
+def score_candle(df, adx_threshold=25):
     """
     Score a single enriched DataFrame (one pair, one timeframe).
     Returns a dict with the confluence score and all supporting values.
+    adx_threshold: ADX value required for "trending" regime (default 25).
     """
     last = df.iloc[-1]
     prev = df.iloc[-2]
@@ -46,7 +47,7 @@ def score_candle(df):
     macd_sig  = last["macd_signal"]
     macd_hist = last["macd_hist"]
 
-    regime = "trending" if adx >= 25 else "ranging"
+    regime = "trending" if adx >= adx_threshold else "ranging"
     score = 0.0
     factors = []
 
@@ -132,14 +133,15 @@ def score_candle(df):
     }
 
 
-def check_mtf_alignment(daily_score, h4_score):
+def check_mtf_alignment(daily_score, h4_score, daily_threshold=0.3):
     """
     Daily sets the bias. H4 must agree with it.
+    daily_threshold: how decisive the Daily must be before it can veto H4 (default 0.3).
     Returns (aligned: bool, reason: str).
     """
-    if daily_score >= 0.3 and h4_score < 0:
+    if daily_score >= daily_threshold and h4_score < 0:
         return False, f"H4 bearish ({h4_score}) conflicts with Daily bullish bias ({daily_score})"
-    if daily_score <= -0.3 and h4_score > 0:
+    if daily_score <= -daily_threshold and h4_score > 0:
         return False, f"H4 bullish ({h4_score}) conflicts with Daily bearish bias ({daily_score})"
     return True, "MTF aligned"
 
@@ -162,16 +164,27 @@ def check_correlation(pair, all_signals):
     return None
 
 
-def analyze_pair(feed, pair, timeframes=["H1", "H4", "D"]):
+def analyze_pair(feed, pair, timeframes=["H1", "H4", "D"], params=None):
     """
     Run full multi-timeframe technical analysis on a pair.
     Returns a structured dict ready to pass to Claude.
+    params: optional dict to override thresholds (used by Test Mode):
+      - adx_threshold (default 25): ADX minimum for trending regime
+      - mtf_daily_threshold (default 0.3): Daily bias strength required to veto H4
+      - confluence_min (default 0.6): score threshold for BUY/SELL direction hint to Claude
+      - require_h1_confirm (default True): whether H1 non-confirmation dampens H4 score
     """
+    p = params or {}
+    adx_threshold      = p.get("adx_threshold", 25)
+    mtf_daily_threshold = p.get("mtf_daily_threshold", 0.3)
+    confluence_min     = p.get("confluence_min", 0.6)
+    require_h1_confirm = p.get("require_h1_confirm", True)
+
     raw = {}
     for tf in timeframes:
         df = feed.get_candles(pair, tf, count=200)
         enriched = run_all(df)
-        raw[tf] = score_candle(enriched)
+        raw[tf] = score_candle(enriched, adx_threshold=adx_threshold)
 
     daily = raw.get("D", {})
     h4    = raw.get("H4", {})
@@ -181,7 +194,7 @@ def analyze_pair(feed, pair, timeframes=["H1", "H4", "D"]):
     h4_score    = h4.get("score", 0)
     h1_score    = h1.get("score", 0)
 
-    mtf_ok, mtf_reason = check_mtf_alignment(daily_score, h4_score)
+    mtf_ok, mtf_reason = check_mtf_alignment(daily_score, h4_score, daily_threshold=mtf_daily_threshold)
 
     # H1 confirmation: same direction as H4?
     h1_confirms = (h4_score > 0 and h1_score > 0) or (h4_score < 0 and h1_score < 0)
@@ -190,12 +203,12 @@ def analyze_pair(feed, pair, timeframes=["H1", "H4", "D"]):
     final_score = h4_score
     if not mtf_ok:
         final_score = 0.0  # blocked by Daily bias
-    elif not h1_confirms:
+    elif require_h1_confirm and not h1_confirms:
         final_score = round(h4_score * 0.7, 3)  # reduce but don't block
 
-    if final_score >= 0.6:
+    if final_score >= confluence_min:
         direction = "BUY"
-    elif final_score <= -0.6:
+    elif final_score <= -confluence_min:
         direction = "SELL"
     else:
         direction = "NO_TRADE"
