@@ -388,7 +388,32 @@
 <body class="tooltips-on">
 
 <header>
-  <h1><span>Forex</span> Agent</h1>
+  <div style="display:flex; align-items:center; gap:20px;">
+    <h1><span>Forex</span> Agent</h1>
+    <div id="acct-display" class="tip"
+      data-tip="Currently active OANDA account. Click 'Switch' to point the agent at a different account. All trades, signals and P&L are stored per-account."
+      style="font-size:11px; color:#4b5563; display:flex; align-items:center; gap:6px;">
+      <span style="color:#2d3148;">▐</span>
+      <span id="acct-id-label" style="font-family:monospace; color:#64748b; letter-spacing:0.5px;">{{ current_account_id }}</span>
+      <button onclick="toggleAccountSwitcher()"
+        style="background:transparent; border:1px solid #2d3148; color:#64748b; font-size:11px; padding:3px 8px; border-radius:4px; cursor:pointer;">
+        Switch
+      </button>
+    </div>
+    <div id="acct-switcher" style="display:none; align-items:center; gap:6px;">
+      <input id="acct-input" type="text" placeholder="101-001-XXXXXXXX-XXX"
+        style="background:#1a1d27; border:1px solid #7c6af7; border-radius:5px; color:#e2e8f0; font-size:12px; padding:5px 10px; width:200px; font-family:monospace;"
+        onkeydown="if(event.key==='Enter') confirmAccountSwitch(); if(event.key==='Escape') toggleAccountSwitcher()">
+      <button onclick="confirmAccountSwitch()"
+        style="background:#7c6af7; color:#fff; border:none; border-radius:5px; font-size:12px; padding:5px 12px; cursor:pointer;">
+        Confirm
+      </button>
+      <button onclick="toggleAccountSwitcher()"
+        style="background:transparent; border:1px solid #2d3148; color:#64748b; font-size:12px; padding:5px 10px; border-radius:5px; cursor:pointer;">
+        Cancel
+      </button>
+    </div>
+  </div>
   <div class="controls">
     <span id="agent-status"
       class="tip"
@@ -668,36 +693,48 @@
   <!-- All-Time P&L Summary -->
   <div class="cards" style="margin-bottom:28px;">
     <div class="card">
-      <label class="tip" data-tip="Total realized profit/loss across every closed trade since the agent started. Open positions are not included — only trades that have been fully closed. Excludes test mode trades.">
-        All-Time Realized P&L <span style="font-size:10px; color:#4b5563;">(live only)</span>
+      <label class="tip" data-tip="Realized P&L from live (non-test) closed trades on this account. Open positions not included. Switch accounts to see a different account's figure. All accounts combined is shown below.">
+        Realized P&L <span style="font-size:10px; color:#4b5563;">(this account, live)</span>
       </label>
       <div class="value {% if pnl_summary.live_pnl >= 0 %}positive{% else %}negative{% endif %}">
         ${{ "{:,.2f}".format(pnl_summary.live_pnl) }}
       </div>
+      <div class="param-hint" style="margin-top:6px;">
+        All accounts: <span class="{% if pnl_summary_all.live_pnl >= 0 %}positive{% else %}negative{% endif %}">${{ "{:,.2f}".format(pnl_summary_all.live_pnl) }}</span>
+      </div>
     </div>
     <div class="card">
-      <label class="tip" data-tip="Combined realized P&L including test mode trades. Useful to see total pipeline performance but not representative of real money gained or lost.">
-        All-Time P&L <span style="font-size:10px; color:#4b5563;">(incl. test)</span>
+      <label class="tip" data-tip="Combined realized P&L including test mode trades for this account. Test trades used custom risk parameters and are not representative of real performance — see the live-only figure for a fair comparison.">
+        Total P&L <span style="font-size:10px; color:#4b5563;">(this account, incl. test)</span>
       </label>
       <div class="value {% if pnl_summary.total_pnl >= 0 %}positive{% else %}negative{% endif %}">
         ${{ "{:,.2f}".format(pnl_summary.total_pnl) }}
       </div>
+      <div class="param-hint" style="margin-top:6px;">
+        All accounts: <span class="{% if pnl_summary_all.total_pnl >= 0 %}positive{% else %}negative{% endif %}">${{ "{:,.2f}".format(pnl_summary_all.total_pnl) }}</span>
+      </div>
     </div>
     <div class="card">
-      <label class="tip" data-tip="Realized P&L from test mode trades only. These used custom risk parameters and bypassed peak hours — treat this as pipeline validation, not real performance.">
-        Test Mode P&L
+      <label class="tip" data-tip="Realized P&L from test mode trades on this account only. Custom risk params and bypassed hours were active — treat this as pipeline validation, not real performance.">
+        Test Mode P&L <span style="font-size:10px; color:#4b5563;">(this account)</span>
       </label>
       <div class="value {% if pnl_summary.test_pnl >= 0 %}positive{% else %}negative{% endif %}">
         ${{ "{:,.2f}".format(pnl_summary.test_pnl) }}
       </div>
+      <div class="param-hint" style="margin-top:6px;">
+        All accounts: <span class="{% if pnl_summary_all.test_pnl >= 0 %}positive{% else %}negative{% endif %}">${{ "{:,.2f}".format(pnl_summary_all.test_pnl) }}</span>
+      </div>
     </div>
     <div class="card">
-      <label class="tip" data-tip="Number of closed trades that ended in profit vs total closed trades. A win rate above 50% is the baseline, but profitability also depends on your average win size vs average loss size.">
-        Win Rate
+      <label class="tip" data-tip="Percentage of closed trades that ended in profit on this account. Above 50% is the baseline, but true profitability also depends on average win vs average loss size.">
+        Win Rate <span style="font-size:10px; color:#4b5563;">(this account)</span>
       </label>
       <div class="value {% if pnl_summary.win_rate >= 50 %}positive{% else %}negative{% endif %}">
         {{ pnl_summary.win_rate }}%
         <span style="font-size:13px; color:#64748b; font-weight:400;">/ {{ pnl_summary.closed_count }} trades</span>
+      </div>
+      <div class="param-hint" style="margin-top:6px;">
+        All accounts: {{ pnl_summary_all.win_rate }}% / {{ pnl_summary_all.closed_count }} trades
       </div>
     </div>
   </div>
@@ -1019,6 +1056,33 @@
     fetch(`/api/close/${instrument}`, { method: "POST" })
       .then(r => r.json())
       .then(d => { toast(`${instrument} closed`); setTimeout(() => location.reload(), 800); });
+  }
+
+  // ── Account Switcher ────────────────────────────────────────────────────
+  function toggleAccountSwitcher() {
+    const switcher = document.getElementById("acct-switcher");
+    const display  = document.getElementById("acct-display");
+    const open = switcher.style.display === "none";
+    switcher.style.display = open ? "flex" : "none";
+    display.style.display  = open ? "none" : "flex";
+    if (open) setTimeout(() => document.getElementById("acct-input").focus(), 50);
+  }
+
+  function confirmAccountSwitch() {
+    const newId = document.getElementById("acct-input").value.trim();
+    if (!newId) return;
+    fetch("/api/switch-account", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ account_id: newId })
+    }).then(r => r.json()).then(d => {
+      if (d.error) {
+        toast(d.error, "#ef4444");
+      } else {
+        toast(`Switched to ${d.account_id}`);
+        setTimeout(() => location.reload(), 800);
+      }
+    });
   }
 
   // ── Test Panel collapse ──────────────────────────────────────────────────

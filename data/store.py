@@ -1,12 +1,21 @@
 """
 SQLite store — persists signals, trades, and account snapshots.
-This is what the dashboard reads from.
+All reads/writes are automatically scoped to the active account.
+Call set_active_account() before any other function.
 """
 import sqlite3
 from datetime import datetime
 from pathlib import Path
 
 DB_PATH = Path(__file__).parent.parent / "data" / "forex_agent.db"
+
+# Active account — set via set_active_account() on startup and when switching
+_active_account_id = None
+
+
+def set_active_account(account_id):
+    global _active_account_id
+    _active_account_id = account_id
 
 
 def _conn():
@@ -17,15 +26,22 @@ def init_db():
     """Create tables if they don't exist. Safe to call multiple times."""
     with _conn() as conn:
         conn.execute("""
+            CREATE TABLE IF NOT EXISTS settings (
+                key   TEXT PRIMARY KEY,
+                value TEXT
+            )
+        """)
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS signals (
-                id        INTEGER PRIMARY KEY AUTOINCREMENT,
-                created   TEXT NOT NULL,
-                pair      TEXT NOT NULL,
-                timeframe TEXT NOT NULL,
-                direction TEXT NOT NULL,
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                created    TEXT NOT NULL,
+                pair       TEXT NOT NULL,
+                timeframe  TEXT NOT NULL,
+                direction  TEXT NOT NULL,
                 confidence REAL,
-                reasoning TEXT,
-                acted_on  INTEGER DEFAULT 0
+                reasoning  TEXT,
+                acted_on   INTEGER DEFAULT 0,
+                account_id TEXT
             )
         """)
         conn.execute("""
@@ -41,32 +57,66 @@ def init_db():
                 pnl         REAL,
                 status      TEXT DEFAULT 'open',
                 signal_id   INTEGER,
-                is_test     INTEGER DEFAULT 0
+                is_test     INTEGER DEFAULT 0,
+                account_id  TEXT
             )
         """)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS account_snapshots (
-                id       INTEGER PRIMARY KEY AUTOINCREMENT,
-                ts       TEXT NOT NULL,
-                balance  REAL,
-                nav      REAL,
-                open_pnl REAL
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts         TEXT NOT NULL,
+                balance    REAL,
+                nav        REAL,
+                open_pnl   REAL,
+                account_id TEXT
             )
         """)
 
-        # Migrate existing trades table if is_test column doesn't exist
-        cols = [r[1] for r in conn.execute("PRAGMA table_info(trades)").fetchall()]
-        if "is_test" not in cols:
-            conn.execute("ALTER TABLE trades ADD COLUMN is_test INTEGER DEFAULT 0")
+        # ── Migrations ────────────────────────────────────────────────────────
+        for table in ("trades", "signals", "account_snapshots"):
+            cols = [r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()]
+
+            if table == "trades" and "is_test" not in cols:
+                conn.execute("ALTER TABLE trades ADD COLUMN is_test INTEGER DEFAULT 0")
+
+            if "account_id" not in cols:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN account_id TEXT")
+                # Attribute existing rows to the currently active account
+                if _active_account_id:
+                    conn.execute(
+                        f"UPDATE {table} SET account_id=? WHERE account_id IS NULL",
+                        (_active_account_id,)
+                    )
 
         conn.commit()
 
 
+# ── Settings ──────────────────────────────────────────────────────────────────
+
+def get_setting(key, default=None):
+    with _conn() as conn:
+        row = conn.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
+    return row[0] if row else default
+
+
+def set_setting(key, value):
+    with _conn() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES (?,?)", (key, value)
+        )
+        conn.commit()
+
+
+# ── Writes ────────────────────────────────────────────────────────────────────
+
 def save_signal(pair, timeframe, direction, confidence, reasoning):
     with _conn() as conn:
         conn.execute(
-            "INSERT INTO signals (created, pair, timeframe, direction, confidence, reasoning) VALUES (?,?,?,?,?,?)",
-            (datetime.utcnow().isoformat(), pair, timeframe, direction, confidence, reasoning)
+            """INSERT INTO signals
+               (created, pair, timeframe, direction, confidence, reasoning, account_id)
+               VALUES (?,?,?,?,?,?,?)""",
+            (datetime.utcnow().isoformat(), pair, timeframe, direction,
+             confidence, reasoning, _active_account_id)
         )
         conn.commit()
 
@@ -74,8 +124,11 @@ def save_signal(pair, timeframe, direction, confidence, reasoning):
 def save_trade(pair, direction, units, open_price, signal_id=None, is_test=False):
     with _conn() as conn:
         conn.execute(
-            "INSERT INTO trades (opened, pair, direction, units, open_price, signal_id, is_test) VALUES (?,?,?,?,?,?,?)",
-            (datetime.utcnow().isoformat(), pair, direction, units, open_price, signal_id, int(is_test))
+            """INSERT INTO trades
+               (opened, pair, direction, units, open_price, signal_id, is_test, account_id)
+               VALUES (?,?,?,?,?,?,?,?)""",
+            (datetime.utcnow().isoformat(), pair, direction, units,
+             open_price, signal_id, int(is_test), _active_account_id)
         )
         conn.commit()
 
@@ -92,47 +145,64 @@ def close_trade(trade_id, close_price, pnl):
 def save_snapshot(balance, nav, open_pnl):
     with _conn() as conn:
         conn.execute(
-            "INSERT INTO account_snapshots (ts, balance, nav, open_pnl) VALUES (?,?,?,?)",
-            (datetime.utcnow().isoformat(), balance, nav, open_pnl)
+            "INSERT INTO account_snapshots (ts, balance, nav, open_pnl, account_id) VALUES (?,?,?,?,?)",
+            (datetime.utcnow().isoformat(), balance, nav, open_pnl, _active_account_id)
         )
         conn.commit()
 
 
+# ── Reads (scoped to active account) ─────────────────────────────────────────
+
 def get_recent_signals(limit=20):
     with _conn() as conn:
         return conn.execute(
-            "SELECT * FROM signals ORDER BY created DESC LIMIT ?", (limit,)
+            "SELECT * FROM signals WHERE account_id=? ORDER BY created DESC LIMIT ?",
+            (_active_account_id, limit)
         ).fetchall()
 
 
 def get_open_trades():
     with _conn() as conn:
         return conn.execute(
-            "SELECT * FROM trades WHERE status='open'"
+            "SELECT * FROM trades WHERE status='open' AND account_id=?",
+            (_active_account_id,)
         ).fetchall()
 
 
 def get_open_test_trades():
-    """Returns open trades that were placed while in test mode."""
+    """Returns open test trades for the active account."""
     with _conn() as conn:
         return conn.execute(
-            "SELECT * FROM trades WHERE status='open' AND is_test=1"
+            "SELECT * FROM trades WHERE status='open' AND is_test=1 AND account_id=?",
+            (_active_account_id,)
         ).fetchall()
 
 
-def get_pnl_summary():
-    """Returns realized P&L totals across all closed trades."""
+def get_pnl_summary(account_id=None):
+    """
+    Returns realized P&L totals.
+    account_id=<id>  → scoped to that account
+    account_id=None  → all accounts combined
+    """
+    if account_id:
+        where = "WHERE status='closed' AND pnl IS NOT NULL AND account_id=?"
+        params = (account_id,)
+    else:
+        where = "WHERE status='closed' AND pnl IS NOT NULL"
+        params = ()
+
     with _conn() as conn:
-        row = conn.execute("""
+        row = conn.execute(f"""
             SELECT
-                COALESCE(SUM(pnl), 0)                          AS total_pnl,
-                COALESCE(SUM(CASE WHEN is_test=0 THEN pnl END), 0) AS live_pnl,
-                COALESCE(SUM(CASE WHEN is_test=1 THEN pnl END), 0) AS test_pnl,
-                COUNT(CASE WHEN status='closed' THEN 1 END)    AS closed_count,
-                COUNT(CASE WHEN status='closed' AND pnl > 0 THEN 1 END) AS wins
+                COALESCE(SUM(pnl), 0)                               AS total_pnl,
+                COALESCE(SUM(CASE WHEN is_test=0 THEN pnl END), 0)  AS live_pnl,
+                COALESCE(SUM(CASE WHEN is_test=1 THEN pnl END), 0)  AS test_pnl,
+                COUNT(*)                                             AS closed_count,
+                COUNT(CASE WHEN pnl > 0 THEN 1 END)                 AS wins
             FROM trades
-            WHERE status='closed' AND pnl IS NOT NULL
-        """).fetchone()
+            {where}
+        """, params).fetchone()
+
     return {
         "total_pnl":    round(row[0], 2),
         "live_pnl":     round(row[1], 2),

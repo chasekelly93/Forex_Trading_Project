@@ -2,27 +2,54 @@
 Flask dashboard — view account state, signals, trades, and control the agent.
 Run with: python -m dashboard.app
 """
-from flask import Flask, render_template, jsonify, request, redirect, url_for
+from flask import Flask, render_template, jsonify, request
 import sqlite3
 import threading
 from pathlib import Path
+from config import OANDA_ACCOUNT_ID
 from data.oanda_client import OandaClient
-from data.store import get_recent_signals, get_open_trades, get_open_test_trades, get_pnl_summary
+from data import store
+from data.store import (
+    get_recent_signals, get_open_trades, get_open_test_trades,
+    get_pnl_summary, get_setting, set_setting, set_active_account, init_db
+)
 from execution.executor import Executor
 
 app = Flask(__name__)
-client = OandaClient()
-executor = Executor()
 
 DB_PATH = Path(__file__).parent.parent / "data" / "forex_agent.db"
 
-# Simple in-memory state — resets on server restart
-_agent_paused = False
-_cycle_running = False
-_cycle_cancelled = False
-_cycle_log = []
+# ── Account initialisation ─────────────────────────────────────────────────
+# Load persisted account ID (fallback to .env value for first run)
+_current_account_id = get_setting("account_id") or OANDA_ACCOUNT_ID or ""
+set_active_account(_current_account_id)
+init_db()  # run migrations with correct account_id so existing rows get attributed
 
-# Auto-restore test mode if open test trades exist (survives server restarts)
+client   = OandaClient()
+executor = Executor()
+client.account_id = _current_account_id
+executor.client.account_id = _current_account_id
+executor.risk.client.account_id = _current_account_id
+
+
+def _apply_account(account_id):
+    """Update all runtime objects to use a new account ID."""
+    global _current_account_id, client, executor
+    _current_account_id = account_id
+    set_active_account(account_id)
+    set_setting("account_id", account_id)
+    client.account_id = account_id
+    executor.client.account_id = account_id
+    executor.risk.client.account_id = account_id
+
+
+# ── In-memory state (resets on server restart) ─────────────────────────────
+_agent_paused    = False
+_cycle_running   = False
+_cycle_cancelled = False
+_cycle_log       = []
+
+# Auto-restore test mode if open test trades exist
 _test_mode = bool(get_open_test_trades())
 
 _test_params = {
@@ -32,7 +59,6 @@ _test_params = {
     "max_positions":       3,
     "max_daily_loss_pct":  3.0,
     "stop_pips":           20,
-    # Analysis thresholds
     "confluence_min":      0.60,
     "adx_threshold":       25,
     "mtf_daily_threshold": 0.30,
@@ -47,7 +73,8 @@ def _conn():
 def get_trade_history(limit=50):
     with _conn() as conn:
         rows = conn.execute(
-            "SELECT * FROM trades ORDER BY opened DESC LIMIT ?", (limit,)
+            "SELECT * FROM trades WHERE account_id=? ORDER BY opened DESC LIMIT ?",
+            (_current_account_id, limit)
         ).fetchall()
     return rows
 
@@ -55,8 +82,8 @@ def get_trade_history(limit=50):
 def get_account_snapshots(limit=48):
     with _conn() as conn:
         rows = conn.execute(
-            "SELECT ts, balance, nav, open_pnl FROM account_snapshots ORDER BY ts DESC LIMIT ?",
-            (limit,)
+            "SELECT ts, balance, nav, open_pnl FROM account_snapshots WHERE account_id=? ORDER BY ts DESC LIMIT ?",
+            (_current_account_id, limit)
         ).fetchall()
     return list(reversed(rows))
 
@@ -82,13 +109,13 @@ def index():
     except Exception:
         positions = []
 
-    signals = get_recent_signals(10)
-    trades = get_trade_history(20)
+    signals  = get_recent_signals(10)
+    trades   = get_trade_history(20)
     snapshots = get_account_snapshots(48)
 
-    # Set of pairs currently open as test trades (for Open Positions badge)
-    test_pairs = {t[3] for t in get_open_test_trades()}
-    pnl_summary = get_pnl_summary()
+    test_pairs       = {t[3] for t in get_open_test_trades()}
+    pnl_summary      = get_pnl_summary(account_id=_current_account_id)
+    pnl_summary_all  = get_pnl_summary(account_id=None)
 
     return render_template(
         "index.html",
@@ -99,13 +126,15 @@ def index():
         snapshots=snapshots,
         test_pairs=test_pairs,
         pnl_summary=pnl_summary,
+        pnl_summary_all=pnl_summary_all,
         paused=_agent_paused,
         test_mode=_test_mode,
         test_params=_test_params,
+        current_account_id=_current_account_id,
     )
 
 
-# ── API endpoints (used by dashboard controls) ─────────────────────────────
+# ── API endpoints ──────────────────────────────────────────────────────────
 
 @app.route("/api/account")
 def api_account():
@@ -118,6 +147,26 @@ def api_account():
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/switch-account", methods=["POST"])
+def api_switch_account():
+    """Validate and switch to a new OANDA account ID."""
+    data = request.get_json()
+    new_id = (data.get("account_id") or "").strip()
+    if not new_id:
+        return jsonify({"error": "account_id is required"}), 400
+
+    # Validate against OANDA before switching
+    try:
+        test_client = OandaClient()
+        test_client.account_id = new_id
+        test_client.get_account()  # throws if invalid
+    except Exception as e:
+        return jsonify({"error": f"OANDA rejected account ID: {e}"}), 422
+
+    _apply_account(new_id)
+    return jsonify({"status": "switched", "account_id": new_id})
 
 
 @app.route("/api/pause", methods=["POST"])
@@ -150,12 +199,10 @@ def api_close_all():
     global _cycle_cancelled
     _cycle_cancelled = True
     results = executor.close_all_positions()
-    # close_all_positions closes each pair individually; update DB per pair using fill data
-    # Results come back without fill details so mark closed without price/pnl here —
-    # individual closes via api_close_pair will have full fill data.
     with _conn() as conn:
         conn.execute(
-            "UPDATE trades SET status='closed', closed=datetime('now') WHERE status='open'"
+            "UPDATE trades SET status='closed', closed=datetime('now') WHERE status='open' AND account_id=?",
+            (_current_account_id,)
         )
         conn.commit()
     return jsonify({"results": results})
@@ -172,10 +219,9 @@ def api_close_pair(instrument):
         with _conn() as conn:
             conn.execute(
                 """UPDATE trades
-                   SET status='closed', closed=datetime('now'),
-                       close_price=?, pnl=?
-                   WHERE pair=? AND status='open'""",
-                (close_price, pnl, instrument)
+                   SET status='closed', closed=datetime('now'), close_price=?, pnl=?
+                   WHERE pair=? AND status='open' AND account_id=?""",
+                (close_price, pnl, instrument, _current_account_id)
             )
             conn.commit()
 
@@ -195,7 +241,6 @@ def api_test_mode():
     if request.method == "POST":
         data = request.get_json()
         if "enabled" in data:
-            # Block toggling if open test trades exist
             open_test = get_open_test_trades()
             if open_test:
                 return jsonify({
@@ -219,10 +264,8 @@ def api_run_cycle():
         return jsonify({"status": "paused", "message": "Agent is paused — resume it first"})
 
     active_test_mode = _test_mode
-    # Explicitly carry is_test flag so executor doesn't have to infer it from params existence
     active_params = {**_test_params, "is_test": True} if _test_mode else None
 
-    # Analysis params (confluence, ADX, MTF thresholds) — only applied in test mode
     _ANALYSIS_KEYS = {"confluence_min", "adx_threshold", "mtf_daily_threshold", "require_h1_confirm"}
     active_analysis_params = (
         {k: v for k, v in _test_params.items() if k in _ANALYSIS_KEYS}
@@ -243,13 +286,13 @@ def api_run_cycle():
             _cycle_log.append(f"Account: ${state['balance']:,.2f} balance | ${state['open_pnl']:,.2f} open P&L")
 
             if active_test_mode:
-                _cycle_log.append(f"🧪 TEST MODE — hours bypassed, custom risk params active")
+                _cycle_log.append("🧪 TEST MODE — hours bypassed, custom risk params active")
             else:
                 mkt_ok, mkt_msg = executor.risk.check_market_hours()
                 if not mkt_ok:
                     _cycle_log.append(f"⚠ {mkt_msg} — signals will generate but no orders will be placed.")
 
-            all_signals = {}  # shared across pairs for correlation detection
+            all_signals = {}
             for pair in PAIRS:
                 if _cycle_cancelled:
                     _cycle_log.append("Cycle cancelled.")
@@ -258,11 +301,11 @@ def api_run_cycle():
                 _cycle_log.append(f"Analyzing {pair}...")
                 try:
                     thesis = analyze(pair, all_signals=all_signals, params=active_analysis_params)
-                    direction = thesis.get("direction")
+                    direction  = thesis.get("direction")
                     confidence = thesis.get("confidence", 0)
-                    score = thesis.get("confluence_score", "—")
-                    regime = thesis.get("regime", "")
-                    corr_warn = thesis.get("correlation_warning")
+                    score      = thesis.get("confluence_score", "—")
+                    regime     = thesis.get("regime", "")
+                    corr_warn  = thesis.get("correlation_warning")
 
                     _cycle_log.append(f"{pair}: {direction} @ {confidence:.0%} (score: {score}, {regime})")
                     if corr_warn:
@@ -270,8 +313,8 @@ def api_run_cycle():
 
                     if direction not in ("NO_TRADE", "ERROR"):
                         result = executor.execute(thesis, params=active_params)
-                        status = result.get('status')
-                        detail = result.get('error') or result.get('reason') or ''
+                        status = result.get("status")
+                        detail = result.get("error") or result.get("reason") or ""
                         _cycle_log.append(f"{pair} execution: {status} {('— ' + detail) if detail else ''}")
                 except Exception as e:
                     _cycle_log.append(f"{pair} error: {str(e)}")
@@ -287,10 +330,7 @@ def api_run_cycle():
 
 @app.route("/api/cycle-status")
 def api_cycle_status():
-    return jsonify({
-        "running": _cycle_running,
-        "log": _cycle_log,
-    })
+    return jsonify({"running": _cycle_running, "log": _cycle_log})
 
 
 if __name__ == "__main__":
