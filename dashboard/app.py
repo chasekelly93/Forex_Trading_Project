@@ -4,6 +4,7 @@ Run with: python -m dashboard.app
 """
 from flask import Flask, render_template, jsonify, request, redirect, url_for
 import sqlite3
+import threading
 from pathlib import Path
 from data.oanda_client import OandaClient
 from data.store import get_recent_signals, get_open_trades
@@ -15,8 +16,10 @@ executor = Executor()
 
 DB_PATH = Path(__file__).parent.parent / "data" / "forex_agent.db"
 
-# Simple in-memory pause flag — reset on server restart
+# Simple in-memory state — resets on server restart
 _agent_paused = False
+_cycle_running = False
+_cycle_log = []
 
 
 def _conn():
@@ -123,6 +126,59 @@ def api_close_pair(instrument):
 @app.route("/api/paused")
 def api_paused():
     return jsonify({"paused": _agent_paused})
+
+
+@app.route("/api/run-cycle", methods=["POST"])
+def api_run_cycle():
+    global _cycle_running, _cycle_log
+
+    if _cycle_running:
+        return jsonify({"status": "already_running"})
+
+    if _agent_paused:
+        return jsonify({"status": "paused", "message": "Agent is paused — resume it first"})
+
+    def run():
+        global _cycle_running, _cycle_log
+        from config import PAIRS
+        from agent.claude_agent import analyze
+        from data.store import save_snapshot
+
+        _cycle_running = True
+        _cycle_log = []
+
+        try:
+            state = executor.snapshot_account()
+            _cycle_log.append(f"Account: ${state['balance']:,.2f} balance | ${state['open_pnl']:,.2f} open P&L")
+
+            for pair in PAIRS:
+                _cycle_log.append(f"Analyzing {pair}...")
+                try:
+                    thesis = analyze(pair)
+                    direction = thesis.get("direction")
+                    confidence = thesis.get("confidence", 0)
+                    _cycle_log.append(f"{pair}: {direction} @ {confidence:.0%}")
+
+                    if direction not in ("NO_TRADE", "ERROR"):
+                        result = executor.execute(thesis)
+                        _cycle_log.append(f"{pair} execution: {result.get('status')}")
+                except Exception as e:
+                    _cycle_log.append(f"{pair} error: {str(e)}")
+
+            _cycle_log.append("Cycle complete.")
+        finally:
+            _cycle_running = False
+
+    threading.Thread(target=run, daemon=True).start()
+    return jsonify({"status": "started"})
+
+
+@app.route("/api/cycle-status")
+def api_cycle_status():
+    return jsonify({
+        "running": _cycle_running,
+        "log": _cycle_log,
+    })
 
 
 if __name__ == "__main__":

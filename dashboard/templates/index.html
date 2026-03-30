@@ -49,6 +49,7 @@
       transition: opacity 0.15s;
     }
     .btn:hover { opacity: 0.85; }
+    .btn-run    { background: #7c6af7; color: #fff; }
     .btn-pause  { background: #f59e0b; color: #000; }
     .btn-resume { background: #22c55e; color: #000; }
     .btn-danger { background: #ef4444; color: #fff; }
@@ -196,6 +197,7 @@
       <span class="status-dot {% if paused %}paused{% else %}live{% endif %}"></span>
       {% if paused %}Paused{% else %}Live{% endif %}
     </span>
+    <button id="run-btn" class="btn btn-run" onclick="runCycle()">&#9654; Run Analysis</button>
     {% if paused %}
       <button class="btn btn-resume" onclick="resumeAgent()">Resume Agent</button>
     {% else %}
@@ -235,6 +237,14 @@
         <div class="value neutral">{{ account.currency }}</div>
       </div>
     {% endif %}
+  </div>
+
+  <!-- Analysis Log (shown while cycle is running) -->
+  <div id="cycle-panel" style="display:none; margin-bottom:24px;">
+    <div class="card">
+      <label>Analysis Running...</label>
+      <div id="cycle-log" style="font-size:13px; color:#94a3b8; line-height:2; margin-top:8px;"></div>
+    </div>
   </div>
 
   <div class="grid-2">
@@ -386,6 +396,49 @@
     t.style.borderColor = color;
     t.style.display = "block";
     setTimeout(() => t.style.display = "none", 3000);
+  }
+
+  function runCycle() {
+    const btn = document.getElementById("run-btn");
+    btn.disabled = true;
+    btn.textContent = "Running...";
+
+    fetch("/api/run-cycle", { method: "POST" })
+      .then(r => r.json())
+      .then(d => {
+        if (d.status === "already_running") {
+          toast("Cycle already in progress", "#f59e0b");
+          btn.disabled = false;
+          btn.innerHTML = "&#9654; Run Analysis";
+          return;
+        }
+        if (d.status === "paused") {
+          toast("Agent is paused — resume first", "#f59e0b");
+          btn.disabled = false;
+          btn.innerHTML = "&#9654; Run Analysis";
+          return;
+        }
+        document.getElementById("cycle-panel").style.display = "block";
+        pollCycleStatus();
+      });
+  }
+
+  function pollCycleStatus() {
+    fetch("/api/cycle-status")
+      .then(r => r.json())
+      .then(d => {
+        const logEl = document.getElementById("cycle-log");
+        logEl.innerHTML = d.log.map(l => `<div>${l}</div>`).join("");
+
+        if (d.running) {
+          setTimeout(pollCycleStatus, 2000);
+        } else {
+          document.getElementById("run-btn").disabled = false;
+          document.getElementById("run-btn").innerHTML = "&#9654; Run Analysis";
+          toast("Analysis complete — refreshing...");
+          setTimeout(() => location.reload(), 1500);
+        }
+      });
   }
 
   function pauseAgent() {
