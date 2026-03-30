@@ -438,7 +438,21 @@
 
 {% if test_mode %}
 <div id="test-panel">
-  <h3>🧪 Test Mode Parameters — changes apply on next Run Analysis</h3>
+  <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px;">
+    <h3 style="margin-bottom:0;">🧪 Test Mode Parameters — changes apply on next Run Analysis</h3>
+    <div style="display:flex; gap:8px;">
+      <button class="btn tip" onclick="resetTestDefaults()"
+        style="background:#1a1d27; border:1px solid #2d3148; color:#94a3b8; font-size:12px; padding:6px 14px;"
+        data-tip="Reset all sliders and toggles back to their default test mode values. Does not turn off Test Mode.">
+        ↺ Reset to Defaults
+      </button>
+      <button class="btn tip" onclick="applyHighRiskPreset()"
+        style="background:#1a0a0a; border:1px solid #ef444488; color:#ef4444; font-size:12px; padding:6px 14px;"
+        data-tip="Sets all parameters to maximise the chance of a trade firing: lower confidence thresholds, relaxed MTF rules, H1 confirmation disabled, higher position limit. Use to verify the pipeline is working — not a real trading strategy.">
+        ⚡ Increase Risk
+      </button>
+    </div>
+  </div>
   <div class="test-params">
 
     <div class="test-param">
@@ -670,6 +684,7 @@
               <th><span class="tip" data-tip="LONG = bought the base currency, profiting if price rises. SHORT = sold the base currency, profiting if price falls.">Side</span></th>
               <th><span class="tip" data-tip="Number of currency units in the position. 100,000 units = 1 standard lot. Position size is calculated by the risk engine based on your account balance and stop distance.">Units</span></th>
               <th><span class="tip" data-tip="Floating profit or loss on this position right now. Positive = trade is winning. Negative = trade is losing. Not realized until closed.">Unrealized P&L</span></th>
+              <th><span class="tip" data-tip="TEST = this position was opened while Test Mode was active. Custom risk parameters were in effect.">Mode</span></th>
               <th></th>
             </tr>
           </thead>
@@ -691,6 +706,14 @@
               <td>{{ pos.long.units if pos.long.units | int > 0 else pos.short.units }}</td>
               <td class="{% if pos.unrealizedPL | float >= 0 %}positive{% else %}negative{% endif %}">
                 ${{ "{:,.2f}".format(pos.unrealizedPL | float) }}
+              </td>
+              <td>
+                {% if pos.instrument in test_pairs %}
+                  <span class="tag tip" style="background:#1a1400; color:#f59e0b; border:1px solid #f59e0b44;"
+                    data-tip="Opened in Test Mode — custom risk parameters were active. Do not compare P&L with production trades.">
+                    🧪 TEST
+                  </span>
+                {% endif %}
               </td>
               <td>
                 <button class="close-btn tip" data-tip="Close this position immediately at the current market price."
@@ -997,6 +1020,47 @@
       headers: {"Content-Type": "application/json"},
       body: JSON.stringify({ params: { [key]: value } })
     });
+  }
+
+  function applyHighRiskPreset() {
+    if (!confirm("Apply high-risk preset? This loosens all filters to maximise trade frequency. For pipeline testing only.")) return;
+    const preset = {
+      bypass_hours:          true,
+      confidence_min:        0.45,   // Claude threshold down from 60%
+      max_risk_pct:          2.0,    // 2% per trade
+      max_positions:         5,      // more concurrent trades
+      max_daily_loss_pct:    6.0,    // wider kill switch
+      stop_pips:             15,     // tighter stop = larger position size
+      confluence_min:        0.40,   // score threshold down from 60%
+      adx_threshold:         20,     // unlock trending regime in more markets
+      mtf_daily_threshold:   0.15,   // Daily must be very strong to veto H4
+      require_h1_confirm:    false,  // H4 fires at full strength without H1
+    };
+    fetch("/api/test-mode", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ params: preset })
+    }).then(() => location.reload());
+  }
+
+  function resetTestDefaults() {
+    const defaults = {
+      bypass_hours:          true,
+      confidence_min:        0.60,
+      max_risk_pct:          1.0,
+      max_positions:         3,
+      max_daily_loss_pct:    3.0,
+      stop_pips:             20,
+      confluence_min:        0.60,
+      adx_threshold:         25,
+      mtf_daily_threshold:   0.30,
+      require_h1_confirm:    true,
+    };
+    fetch("/api/test-mode", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ params: defaults })
+    }).then(() => location.reload());
   }
 
   // Auto-refresh account numbers every 30s

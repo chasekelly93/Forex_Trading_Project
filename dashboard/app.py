@@ -84,6 +84,9 @@ def index():
     trades = get_trade_history(20)
     snapshots = get_account_snapshots(48)
 
+    # Set of pairs currently open as test trades (for Open Positions badge)
+    test_pairs = {t[3] for t in get_open_test_trades()}
+
     return render_template(
         "index.html",
         account=account,
@@ -91,6 +94,7 @@ def index():
         signals=signals,
         trades=trades,
         snapshots=snapshots,
+        test_pairs=test_pairs,
         paused=_agent_paused,
         test_mode=_test_mode,
         test_params=_test_params,
@@ -193,7 +197,8 @@ def api_run_cycle():
         return jsonify({"status": "paused", "message": "Agent is paused — resume it first"})
 
     active_test_mode = _test_mode
-    active_params = dict(_test_params) if _test_mode else None
+    # Explicitly carry is_test flag so executor doesn't have to infer it from params existence
+    active_params = {**_test_params, "is_test": True} if _test_mode else None
 
     # Analysis params (confluence, ADX, MTF thresholds) — only applied in test mode
     _ANALYSIS_KEYS = {"confluence_min", "adx_threshold", "mtf_daily_threshold", "require_h1_confirm"}
