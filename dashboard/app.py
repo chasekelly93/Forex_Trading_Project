@@ -20,10 +20,11 @@ app = Flask(__name__)
 DB_PATH = Path(__file__).parent.parent / "data" / "forex_agent.db"
 
 # ── Account initialisation ─────────────────────────────────────────────────
-# Load persisted account ID (fallback to .env value for first run)
+# init_db first so the settings table exists before we read from it
+set_active_account(OANDA_ACCOUNT_ID or "")  # temporary — updated below after init
+init_db()
 _current_account_id = get_setting("account_id") or OANDA_ACCOUNT_ID or ""
 set_active_account(_current_account_id)
-init_db()  # run migrations with correct account_id so existing rows get attributed
 
 client   = OandaClient()
 executor = Executor()
