@@ -44,6 +44,7 @@ class Executor:
                 direction=direction,
                 units=abs(units),
                 open_price=fill_price,
+                is_test=bool(params),
             )
 
             print(f"[FILLED] Trade ID: {trade_id} | Fill price: {fill_price}")

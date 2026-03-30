@@ -704,6 +704,7 @@
             <th><span class="tip" data-tip="The price at which the trade was closed. Blank if still open.">Close Price</span></th>
             <th><span class="tip" data-tip="Realized profit or loss after the trade closed. Positive = profitable. Blank if still open.">P&amp;L</span></th>
             <th><span class="tip" data-tip="Open = position is currently active. Closed = trade has been exited and P&L is realized.">Status</span></th>
+            <th><span class="tip" data-tip="TEST = this trade was placed while Test Mode was active (custom risk params, hours bypassed). Production trades show no badge.">Mode</span></th>
           </tr>
         </thead>
         <tbody>
@@ -722,6 +723,14 @@
             </td>
             <td>
               <span class="tag {% if t[9]=='open' %}tag-open{% else %}tag-closed{% endif %}">{{ t[9] }}</span>
+            </td>
+            <td>
+              {% if t[11] %}
+                <span class="tag tip" style="background:#1a1400; color:#f59e0b; border:1px solid #f59e0b44;"
+                  data-tip="Placed in Test Mode — custom risk parameters were active. Do not compare P&L directly with production trades.">
+                  🧪 TEST
+                </span>
+              {% endif %}
             </td>
           </tr>
           {% endfor %}
@@ -890,7 +899,13 @@
       method: "POST",
       headers: {"Content-Type": "application/json"},
       body: JSON.stringify({ enabled: !current })
-    }).then(() => location.reload());
+    }).then(r => r.json()).then(d => {
+      if (d.status === "blocked") {
+        toast(d.message, "#ef4444");
+      } else {
+        location.reload();
+      }
+    });
   }
 
   function updateParam(key, value) {

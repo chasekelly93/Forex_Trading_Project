@@ -7,7 +7,7 @@ import sqlite3
 import threading
 from pathlib import Path
 from data.oanda_client import OandaClient
-from data.store import get_recent_signals, get_open_trades
+from data.store import get_recent_signals, get_open_trades, get_open_test_trades
 from execution.executor import Executor
 
 app = Flask(__name__)
@@ -164,6 +164,13 @@ def api_test_mode():
     if request.method == "POST":
         data = request.get_json()
         if "enabled" in data:
+            # Block toggling if open test trades exist
+            open_test = get_open_test_trades()
+            if open_test:
+                return jsonify({
+                    "status": "blocked",
+                    "message": f"Cannot change mode — {len(open_test)} test trade(s) still open. Close them first."
+                }), 409
             _test_mode = bool(data["enabled"])
         if "params" in data:
             _test_params.update(data["params"])
@@ -203,6 +210,7 @@ def api_run_cycle():
                 if not mkt_ok:
                     _cycle_log.append(f"⚠ {mkt_msg} — signals will generate but no orders will be placed.")
 
+            all_signals = {}  # shared across pairs for correlation detection
             for pair in PAIRS:
                 if _cycle_cancelled:
                     _cycle_log.append("Cycle cancelled.")
@@ -210,10 +218,16 @@ def api_run_cycle():
 
                 _cycle_log.append(f"Analyzing {pair}...")
                 try:
-                    thesis = analyze(pair)
+                    thesis = analyze(pair, all_signals=all_signals)
                     direction = thesis.get("direction")
                     confidence = thesis.get("confidence", 0)
-                    _cycle_log.append(f"{pair}: {direction} @ {confidence:.0%}")
+                    score = thesis.get("confluence_score", "—")
+                    regime = thesis.get("regime", "")
+                    corr_warn = thesis.get("correlation_warning")
+
+                    _cycle_log.append(f"{pair}: {direction} @ {confidence:.0%} (score: {score}, {regime})")
+                    if corr_warn:
+                        _cycle_log.append(f"  ⚠ {corr_warn}")
 
                     if direction not in ("NO_TRADE", "ERROR"):
                         result = executor.execute(thesis, params=active_params)

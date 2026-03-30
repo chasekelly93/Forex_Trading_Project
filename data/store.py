@@ -3,7 +3,6 @@ SQLite store — persists signals, trades, and account snapshots.
 This is what the dashboard reads from.
 """
 import sqlite3
-import json
 from datetime import datetime
 from pathlib import Path
 
@@ -15,7 +14,7 @@ def _conn():
 
 
 def init_db():
-    """Create tables if they don't exist."""
+    """Create tables if they don't exist. Safe to call multiple times."""
     with _conn() as conn:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS signals (
@@ -31,28 +30,35 @@ def init_db():
         """)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS trades (
-                id         INTEGER PRIMARY KEY AUTOINCREMENT,
-                opened     TEXT NOT NULL,
-                closed     TEXT,
-                pair       TEXT NOT NULL,
-                direction  TEXT NOT NULL,
-                units      INTEGER NOT NULL,
-                open_price REAL,
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                opened      TEXT NOT NULL,
+                closed      TEXT,
+                pair        TEXT NOT NULL,
+                direction   TEXT NOT NULL,
+                units       INTEGER NOT NULL,
+                open_price  REAL,
                 close_price REAL,
-                pnl        REAL,
-                status     TEXT DEFAULT 'open',
-                signal_id  INTEGER
+                pnl         REAL,
+                status      TEXT DEFAULT 'open',
+                signal_id   INTEGER,
+                is_test     INTEGER DEFAULT 0
             )
         """)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS account_snapshots (
-                id      INTEGER PRIMARY KEY AUTOINCREMENT,
-                ts      TEXT NOT NULL,
-                balance REAL,
-                nav     REAL,
+                id       INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts       TEXT NOT NULL,
+                balance  REAL,
+                nav      REAL,
                 open_pnl REAL
             )
         """)
+
+        # Migrate existing trades table if is_test column doesn't exist
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(trades)").fetchall()]
+        if "is_test" not in cols:
+            conn.execute("ALTER TABLE trades ADD COLUMN is_test INTEGER DEFAULT 0")
+
         conn.commit()
 
 
@@ -65,11 +71,11 @@ def save_signal(pair, timeframe, direction, confidence, reasoning):
         conn.commit()
 
 
-def save_trade(pair, direction, units, open_price, signal_id=None):
+def save_trade(pair, direction, units, open_price, signal_id=None, is_test=False):
     with _conn() as conn:
         conn.execute(
-            "INSERT INTO trades (opened, pair, direction, units, open_price, signal_id) VALUES (?,?,?,?,?,?)",
-            (datetime.utcnow().isoformat(), pair, direction, units, open_price, signal_id)
+            "INSERT INTO trades (opened, pair, direction, units, open_price, signal_id, is_test) VALUES (?,?,?,?,?,?,?)",
+            (datetime.utcnow().isoformat(), pair, direction, units, open_price, signal_id, int(is_test))
         )
         conn.commit()
 
@@ -94,15 +100,21 @@ def save_snapshot(balance, nav, open_pnl):
 
 def get_recent_signals(limit=20):
     with _conn() as conn:
-        rows = conn.execute(
+        return conn.execute(
             "SELECT * FROM signals ORDER BY created DESC LIMIT ?", (limit,)
         ).fetchall()
-    return rows
 
 
 def get_open_trades():
     with _conn() as conn:
-        rows = conn.execute(
+        return conn.execute(
             "SELECT * FROM trades WHERE status='open'"
         ).fetchall()
-    return rows
+
+
+def get_open_test_trades():
+    """Returns open trades that were placed while in test mode."""
+    with _conn() as conn:
+        return conn.execute(
+            "SELECT * FROM trades WHERE status='open' AND is_test=1"
+        ).fetchall()
