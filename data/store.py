@@ -67,7 +67,9 @@ def init_db():
                 status      TEXT DEFAULT 'open',
                 signal_id   INTEGER,
                 is_test     INTEGER DEFAULT 0,
-                account_id  TEXT
+                account_id  TEXT,
+                sl_price    REAL,
+                tp_price    REAL
             )
         """)
         conn.execute("""
@@ -85,12 +87,16 @@ def init_db():
         for table in ("trades", "signals", "account_snapshots"):
             cols = [r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()]
 
-            if table == "trades" and "is_test" not in cols:
-                conn.execute("ALTER TABLE trades ADD COLUMN is_test INTEGER DEFAULT 0")
+            if table == "trades":
+                if "is_test" not in cols:
+                    conn.execute("ALTER TABLE trades ADD COLUMN is_test INTEGER DEFAULT 0")
+                if "sl_price" not in cols:
+                    conn.execute("ALTER TABLE trades ADD COLUMN sl_price REAL")
+                if "tp_price" not in cols:
+                    conn.execute("ALTER TABLE trades ADD COLUMN tp_price REAL")
 
             if "account_id" not in cols:
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN account_id TEXT")
-                # Attribute existing rows to the currently active account
                 if _active_account_id:
                     conn.execute(
                         f"UPDATE {table} SET account_id=? WHERE account_id IS NULL",
@@ -130,14 +136,17 @@ def save_signal(pair, timeframe, direction, confidence, reasoning):
         conn.commit()
 
 
-def save_trade(pair, direction, units, open_price, signal_id=None, is_test=False):
+def save_trade(pair, direction, units, open_price, signal_id=None, is_test=False,
+               sl_price=None, tp_price=None):
     with _conn() as conn:
         conn.execute(
             """INSERT INTO trades
-               (opened, pair, direction, units, open_price, signal_id, is_test, account_id)
-               VALUES (?,?,?,?,?,?,?,?)""",
+               (opened, pair, direction, units, open_price, signal_id, is_test,
+                account_id, sl_price, tp_price)
+               VALUES (?,?,?,?,?,?,?,?,?,?)""",
             (datetime.utcnow().isoformat(), pair, direction, units,
-             open_price, signal_id, int(is_test), _active_account_id)
+             open_price, signal_id, int(is_test),
+             _active_account_id, sl_price, tp_price)
         )
         conn.commit()
 

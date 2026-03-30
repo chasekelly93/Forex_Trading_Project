@@ -20,14 +20,21 @@ PIP_SIZE = {
     "USD_JPY": 0.01,
 }
 
+# Decimal precision per pair for price formatting
+PRICE_DECIMALS = {
+    "USD_JPY": 3,
+}
+DEFAULT_DECIMALS = 5
+
 # Default params (used when test mode is off)
 DEFAULT_PARAMS = {
-    "bypass_hours":      False,
-    "confidence_min":    0.60,
-    "max_risk_pct":      MAX_RISK_PER_TRADE_PCT,
-    "max_positions":     MAX_OPEN_POSITIONS,
+    "bypass_hours":       False,
+    "confidence_min":     0.60,
+    "max_risk_pct":       MAX_RISK_PER_TRADE_PCT,
+    "max_positions":      MAX_OPEN_POSITIONS,
     "max_daily_loss_pct": MAX_DAILY_LOSS_PCT,
-    "stop_pips":         20,
+    "stop_pips":          20,
+    "take_profit_ratio":  2.0,   # TP distance = stop_pips × this ratio (2.0 = 2:1 R:R)
 }
 
 
@@ -100,6 +107,31 @@ class RiskEngine:
 
         units = int(risk_amount / (stop_pips * pip_value_per_unit))
         return min(units, 100_000)
+
+    def calculate_sl_tp(self, pair, direction, stop_pips, take_profit_ratio):
+        """
+        Calculate absolute stop-loss and take-profit prices using the current live bid/ask.
+        BUY:  SL below ask, TP above ask
+        SELL: SL above bid, TP below bid
+        Returns (sl_price, tp_price).
+        """
+        pip      = PIP_SIZE.get(pair, 0.0001)
+        decimals = PRICE_DECIMALS.get(pair, DEFAULT_DECIMALS)
+        sl_dist  = stop_pips * pip
+        tp_dist  = sl_dist * take_profit_ratio
+
+        prices = self.client.get_live_price([pair])
+        bid = float(prices[0]["bids"][0]["price"])
+        ask = float(prices[0]["asks"][0]["price"])
+
+        if direction == "BUY":
+            sl_price = round(ask - sl_dist, decimals)
+            tp_price = round(ask + tp_dist, decimals)
+        else:  # SELL
+            sl_price = round(bid + sl_dist, decimals)
+            tp_price = round(bid - tp_dist, decimals)
+
+        return sl_price, tp_price
 
     def approve(self, pair, thesis, params=None):
         """

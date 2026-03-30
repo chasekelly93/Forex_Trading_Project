@@ -46,21 +46,30 @@ class OandaClient:
         self.client.request(r)
         return r.response.get("positions", [])
 
-    def place_market_order(self, pair, units):
+    def place_market_order(self, pair, units, sl_price=None, tp_price=None):
         """
-        Place a market order.
+        Place a market order with optional stop-loss and take-profit.
         units > 0 = buy, units < 0 = sell
+        sl_price / tp_price are absolute prices (GTC orders attached to the trade).
         """
-        data = {
-            "order": {
-                "type": "MARKET",
-                "instrument": pair,
-                "units": str(units),
-                "timeInForce": "FOK",
-                "positionFill": "DEFAULT"
-            }
+        order = {
+            "type": "MARKET",
+            "instrument": pair,
+            "units": str(units),
+            "timeInForce": "FOK",
+            "positionFill": "DEFAULT",
         }
-        r = orders_ep.OrderCreate(accountID=self.account_id, data=data)
+        if sl_price is not None:
+            order["stopLossOnFill"] = {
+                "price": str(sl_price),
+                "timeInForce": "GTC",
+            }
+        if tp_price is not None:
+            order["takeProfitOnFill"] = {
+                "price": str(tp_price),
+                "timeInForce": "GTC",
+            }
+        r = orders_ep.OrderCreate(accountID=self.account_id, data={"order": order})
         self.client.request(r)
         return r.response
 

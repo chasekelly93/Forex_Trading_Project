@@ -4,7 +4,7 @@ Never call this directly; always go through RiskEngine.approve() first.
 """
 from data.oanda_client import OandaClient
 from data.store import save_trade, close_trade, get_open_trades, save_snapshot
-from execution.risk import RiskEngine
+from execution.risk import RiskEngine, DEFAULT_PARAMS
 
 
 class Executor:
@@ -31,9 +31,20 @@ class Executor:
 
         print(f"[APPROVED] {reason} | Units: {units:+,}")
 
+        # Calculate SL/TP
+        p = {**DEFAULT_PARAMS, **(params or {})}
+        sl_price, tp_price = None, None
+        try:
+            sl_price, tp_price = self.risk.calculate_sl_tp(
+                pair, direction, p["stop_pips"], p.get("take_profit_ratio", 2.0)
+            )
+            print(f"[SL/TP] SL: {sl_price} | TP: {tp_price}")
+        except Exception as e:
+            print(f"[SL/TP ERROR] Could not calculate SL/TP: {e} — placing without")
+
         # Place the order
         try:
-            response = self.client.place_market_order(pair, units)
+            response = self.client.place_market_order(pair, units, sl_price=sl_price, tp_price=tp_price)
             order_fill = response.get("orderFillTransaction", {})
             fill_price = float(order_fill.get("price", 0))
             trade_id = order_fill.get("tradeOpened", {}).get("tradeID")
@@ -44,6 +55,8 @@ class Executor:
                 direction=direction,
                 units=abs(units),
                 open_price=fill_price,
+                sl_price=sl_price,
+                tp_price=tp_price,
                 is_test=bool(params and params.get("is_test", False)),
             )
 

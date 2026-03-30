@@ -99,6 +99,7 @@ _test_params = {
     "adx_threshold":       25,
     "mtf_daily_threshold": 0.30,
     "require_h1_confirm":  True,
+    "take_profit_ratio":   2.0,
 }
 
 

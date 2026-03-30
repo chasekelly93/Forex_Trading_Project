@@ -580,13 +580,24 @@
 
     <div class="test-param">
       <label>
-        <span class="tip" data-tip="Assumed stop loss distance in pips used for position sizing calculations. A pip is the smallest price move in forex (0.0001 for most pairs). Wider stop = smaller position size for the same risk %. Tighter stop = larger position. This is a sizing input only — actual stop orders are not yet placed automatically.">Stop Loss Distance (pips)</span>
+        <span class="tip" data-tip="Stop loss distance in pips. This controls BOTH position sizing AND the actual stop-loss order placed on OANDA. For most pairs, 1 pip = 0.0001. For USD/JPY, 1 pip = 0.01. Wider stop = smaller position size for the same risk %.">Stop Loss Distance (pips)</span>
       </label>
       <div class="param-value" id="val-pips">{{ test_params.stop_pips }} pips</div>
       <input type="range" min="5" max="100" step="5"
         value="{{ test_params.stop_pips }}"
         oninput="updateParamSlider('stop_pips', parseInt(this.value), 'val-pips', v => v+' pips')">
       <div class="param-hint">Production default: 20 pips · Range: 5–100</div>
+    </div>
+
+    <div class="test-param">
+      <label>
+        <span class="tip" data-tip="Risk:Reward ratio. The take-profit is set at this multiple of the stop-loss distance. 2.0 = for every pip you risk, you target 2 pips profit. Higher R:R means fewer trades hit TP but each win is larger. 2.0 is the standard minimum for positive expectancy.">Risk : Reward Ratio</span>
+      </label>
+      <div class="param-value" id="val-rr">1 : {{ test_params.take_profit_ratio }}</div>
+      <input type="range" min="1.0" max="4.0" step="0.5"
+        value="{{ test_params.take_profit_ratio }}"
+        oninput="updateParamSlider('take_profit_ratio', parseFloat(this.value), 'val-rr', v => '1 : '+v)">
+      <div class="param-hint">Production default: 1:2 · Range: 1:1–1:4</div>
     </div>
 
   </div>
@@ -903,6 +914,8 @@
             <th><span class="tip" data-tip="Number of currency units traded. 100,000 = 1 standard lot. Sized automatically by the risk engine.">Units</span></th>
             <th><span class="tip" data-tip="The price at which the trade was opened (market fill price).">Open Price</span></th>
             <th><span class="tip" data-tip="The price at which the trade was closed. Blank if still open.">Close Price</span></th>
+            <th><span class="tip" data-tip="Stop-loss price set on OANDA when the trade was opened. If price reaches this level, the trade closes automatically to limit your loss.">Stop Loss</span></th>
+            <th><span class="tip" data-tip="Take-profit price set on OANDA when the trade was opened. If price reaches this level, the trade closes automatically to lock in your gain.">Take Profit</span></th>
             <th><span class="tip" data-tip="Realized profit or loss after the trade closed. Positive = profitable. Blank if still open.">P&amp;L</span></th>
             <th><span class="tip" data-tip="Open = position is currently active. Closed = trade has been exited and P&L is realized.">Status</span></th>
             <th><span class="tip" data-tip="TEST = this trade was placed while Test Mode was active (custom risk params, hours bypassed). Production trades show no badge.">Mode</span></th>
@@ -919,6 +932,8 @@
             <td>{{ "{:,}".format(t[5]) if t[5] else "—" }}</td>
             <td>{{ t[6] or "—" }}</td>
             <td>{{ t[7] or "—" }}</td>
+            <td style="color:#64748b;">{{ t[13] or "—" }}</td>
+            <td style="color:#64748b;">{{ t[14] or "—" }}</td>
             <td class="{% if t[8] and t[8] >= 0 %}positive{% elif t[8] %}negative{% endif %}">
               {% if t[8] is not none %}${{ "{:,.2f}".format(t[8]) }}{% else %}—{% endif %}
             </td>
