@@ -281,10 +281,11 @@
       <span class="status-dot {% if paused %}paused{% else %}live{% endif %}"></span>
       {% if paused %}Paused{% else %}Live{% endif %}
     </span>
-    <button id="run-btn" class="btn btn-run tip" onclick="runCycle()"
-      data-tip="Triggers a full analysis cycle across all 7 pairs: fetches live OANDA prices, calculates technical indicators, sends data to Claude for a trade thesis, then executes any signals that pass the risk checks.">
-      &#9654; Run Analysis
-    </button>
+    <span id="run-tip" class="tip"
+      data-tip="Triggers a full analysis cycle across all 7 pairs: fetches live OANDA prices, calculates technical indicators, sends data to Claude for a trade thesis, then executes any signals that pass the risk checks."
+      style="display:inline-block;">
+      <button id="run-btn" class="btn btn-run" onclick="runCycle()">&#9654; Run Analysis</button>
+    </span>
     {% if paused %}
       <button class="btn btn-resume tip" onclick="resumeAgent()"
         data-tip="Resume the agent. New analysis cycles will execute trades again.">
@@ -575,15 +576,16 @@
   // ── Run Analysis ────────────────────────────────────────────────────────
   function setRunning(on) {
     const btn = document.getElementById("run-btn");
+    const tip = document.getElementById("run-tip");
     if (on) {
       btn.classList.add("running");
       btn.innerHTML = "Analyzing...";
-      btn.setAttribute("data-tip", "Analysis in progress — Claude is reviewing all 7 pairs. This takes 60–90 seconds. The button will reset automatically when complete.");
+      tip.setAttribute("data-tip", "Analysis in progress — Claude is reviewing all 7 pairs. Takes 60–90 seconds. The button resets automatically when done.");
       document.getElementById("cycle-panel").style.display = "block";
     } else {
       btn.classList.remove("running");
       btn.innerHTML = "&#9654; Run Analysis";
-      btn.setAttribute("data-tip", "Triggers a full analysis cycle across all 7 pairs: fetches live OANDA prices, calculates technical indicators, sends data to Claude for a trade thesis, then executes any signals that pass the risk checks.");
+      tip.setAttribute("data-tip", "Triggers a full analysis cycle across all 7 pairs: fetches live OANDA prices, calculates technical indicators, sends data to Claude for a trade thesis, then executes any signals that pass the risk checks.");
       document.getElementById("cycle-panel").style.display = "none";
     }
   }

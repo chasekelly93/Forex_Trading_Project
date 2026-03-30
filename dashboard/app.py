@@ -170,6 +170,11 @@ def api_run_cycle():
             state = executor.snapshot_account()
             _cycle_log.append(f"Account: ${state['balance']:,.2f} balance | ${state['open_pnl']:,.2f} open P&L")
 
+            # Show market hours status upfront
+            mkt_ok, mkt_msg = executor.risk.check_market_hours()
+            if not mkt_ok:
+                _cycle_log.append(f"⚠ {mkt_msg} — signals will generate but no orders will be placed.")
+
             for pair in PAIRS:
                 if _cycle_cancelled:
                     _cycle_log.append("Cycle cancelled.")
