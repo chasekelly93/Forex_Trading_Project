@@ -202,10 +202,11 @@
       cursor: help;
     }
 
+    /* Default: tooltip appears BELOW */
     .tip::after {
       content: attr(data-tip);
       position: absolute;
-      bottom: calc(100% + 8px);
+      top: calc(100% + 8px);
       left: 50%;
       transform: translateX(-50%);
       background: #1e2235;
@@ -226,15 +227,15 @@
       box-shadow: 0 4px 16px rgba(0,0,0,0.4);
     }
 
-    /* Arrow */
+    /* Arrow — points UP (tooltip is below) */
     .tip::before {
       content: '';
       position: absolute;
-      bottom: calc(100% + 2px);
+      top: calc(100% + 2px);
       left: 50%;
       transform: translateX(-50%);
       border: 5px solid transparent;
-      border-top-color: #3d4468;
+      border-bottom-color: #3d4468;
       pointer-events: none;
       opacity: 0;
       transition: opacity 0.15s;
@@ -245,17 +246,25 @@
     body.tooltips-on .tip:hover::after,
     body.tooltips-on .tip:hover::before { opacity: 1; }
 
-    /* Tip anchored to right edge when near right side */
+    /* In tables: tooltip appears ABOVE (plenty of space below rows) */
+    td .tip::after, th .tip::after {
+      top: auto;
+      bottom: calc(100% + 8px);
+    }
+    td .tip::before, th .tip::before {
+      top: auto;
+      bottom: calc(100% + 2px);
+      border-bottom-color: transparent;
+      border-top-color: #3d4468;
+    }
+
+    /* Prevent overflow on right-side columns */
     .tip.tip-left::after { left: auto; right: 0; transform: none; }
     .tip.tip-left::before { left: auto; right: 12px; transform: none; }
 
     /* Underline hint that something is hoverable */
-    body.tooltips-on .tip {
-      border-bottom: 1px dashed #3d4468;
-    }
-    body.tooltips-on th .tip {
-      border-bottom: none;
-    }
+    body.tooltips-on .tip { border-bottom: 1px dashed #3d4468; }
+    body.tooltips-on th .tip, body.tooltips-on .btn.tip { border-bottom: none; }
 
     .positive { color: #22c55e; }
     .negative { color: #ef4444; }
@@ -273,7 +282,7 @@
       {% if paused %}Paused{% else %}Live{% endif %}
     </span>
     <button id="run-btn" class="btn btn-run tip" onclick="runCycle()"
-      data-tip="Runs one full analysis cycle: fetches live prices, calculates all indicators, asks Claude for a trade thesis on each pair, then executes any approved signals.">
+      data-tip="Triggers a full analysis cycle across all 7 pairs: fetches live OANDA prices, calculates technical indicators, sends data to Claude for a trade thesis, then executes any signals that pass the risk checks.">
       &#9654; Run Analysis
     </button>
     {% if paused %}
@@ -569,10 +578,12 @@
     if (on) {
       btn.classList.add("running");
       btn.innerHTML = "Analyzing...";
+      btn.setAttribute("data-tip", "Analysis in progress — Claude is reviewing all 7 pairs. This takes 60–90 seconds. The button will reset automatically when complete.");
       document.getElementById("cycle-panel").style.display = "block";
     } else {
       btn.classList.remove("running");
       btn.innerHTML = "&#9654; Run Analysis";
+      btn.setAttribute("data-tip", "Triggers a full analysis cycle across all 7 pairs: fetches live OANDA prices, calculates technical indicators, sends data to Claude for a trade thesis, then executes any signals that pass the risk checks.");
       document.getElementById("cycle-panel").style.display = "none";
     }
   }
