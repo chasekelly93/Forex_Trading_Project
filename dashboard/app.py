@@ -19,6 +19,7 @@ DB_PATH = Path(__file__).parent.parent / "data" / "forex_agent.db"
 # Simple in-memory state — resets on server restart
 _agent_paused = False
 _cycle_running = False
+_cycle_cancelled = False
 _cycle_log = []
 
 
@@ -110,8 +111,9 @@ def api_resume():
 
 @app.route("/api/close-all", methods=["POST"])
 def api_close_all():
+    global _cycle_cancelled
+    _cycle_cancelled = True  # abort any running cycle immediately
     results = executor.close_all_positions()
-    # Mark all open trades as closed in DB
     with _conn() as conn:
         conn.execute("UPDATE trades SET status='closed', closed=datetime('now') WHERE status='open'")
         conn.commit()
@@ -120,6 +122,8 @@ def api_close_all():
 
 @app.route("/api/close/<instrument>", methods=["POST"])
 def api_close_pair(instrument):
+    global _cycle_cancelled
+    _cycle_cancelled = True  # abort cycle so it doesn't re-open this pair
     try:
         resp = client.close_position(instrument)
 
@@ -153,12 +157,13 @@ def api_run_cycle():
         return jsonify({"status": "paused", "message": "Agent is paused — resume it first"})
 
     def run():
-        global _cycle_running, _cycle_log
+        global _cycle_running, _cycle_cancelled, _cycle_log
         from config import PAIRS
         from agent.claude_agent import analyze
         from data.store import save_snapshot
 
         _cycle_running = True
+        _cycle_cancelled = False
         _cycle_log = []
 
         try:
@@ -166,6 +171,10 @@ def api_run_cycle():
             _cycle_log.append(f"Account: ${state['balance']:,.2f} balance | ${state['open_pnl']:,.2f} open P&L")
 
             for pair in PAIRS:
+                if _cycle_cancelled:
+                    _cycle_log.append("Cycle cancelled.")
+                    break
+
                 _cycle_log.append(f"Analyzing {pair}...")
                 try:
                     thesis = analyze(pair)
@@ -181,7 +190,8 @@ def api_run_cycle():
                 except Exception as e:
                     _cycle_log.append(f"{pair} error: {str(e)}")
 
-            _cycle_log.append("Cycle complete.")
+            if not _cycle_cancelled:
+                _cycle_log.append("Cycle complete.")
         finally:
             _cycle_running = False
 
