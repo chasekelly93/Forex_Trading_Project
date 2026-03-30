@@ -7,7 +7,7 @@ import sqlite3
 import threading
 from pathlib import Path
 from data.oanda_client import OandaClient
-from data.store import get_recent_signals, get_open_trades, get_open_test_trades
+from data.store import get_recent_signals, get_open_trades, get_open_test_trades, get_pnl_summary
 from execution.executor import Executor
 
 app = Flask(__name__)
@@ -86,6 +86,7 @@ def index():
 
     # Set of pairs currently open as test trades (for Open Positions badge)
     test_pairs = {t[3] for t in get_open_test_trades()}
+    pnl_summary = get_pnl_summary()
 
     return render_template(
         "index.html",
@@ -95,6 +96,7 @@ def index():
         trades=trades,
         snapshots=snapshots,
         test_pairs=test_pairs,
+        pnl_summary=pnl_summary,
         paused=_agent_paused,
         test_mode=_test_mode,
         test_params=_test_params,

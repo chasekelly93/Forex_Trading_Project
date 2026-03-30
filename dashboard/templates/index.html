@@ -663,6 +663,43 @@
     {% endif %}
   </div>
 
+  <!-- All-Time P&L Summary -->
+  <div class="cards" style="margin-bottom:28px;">
+    <div class="card">
+      <label class="tip" data-tip="Total realized profit/loss across every closed trade since the agent started. Open positions are not included — only trades that have been fully closed. Excludes test mode trades.">
+        All-Time Realized P&L <span style="font-size:10px; color:#4b5563;">(live only)</span>
+      </label>
+      <div class="value {% if pnl_summary.live_pnl >= 0 %}positive{% else %}negative{% endif %}">
+        ${{ "{:,.2f}".format(pnl_summary.live_pnl) }}
+      </div>
+    </div>
+    <div class="card">
+      <label class="tip" data-tip="Combined realized P&L including test mode trades. Useful to see total pipeline performance but not representative of real money gained or lost.">
+        All-Time P&L <span style="font-size:10px; color:#4b5563;">(incl. test)</span>
+      </label>
+      <div class="value {% if pnl_summary.total_pnl >= 0 %}positive{% else %}negative{% endif %}">
+        ${{ "{:,.2f}".format(pnl_summary.total_pnl) }}
+      </div>
+    </div>
+    <div class="card">
+      <label class="tip" data-tip="Realized P&L from test mode trades only. These used custom risk parameters and bypassed peak hours — treat this as pipeline validation, not real performance.">
+        Test Mode P&L
+      </label>
+      <div class="value {% if pnl_summary.test_pnl >= 0 %}positive{% else %}negative{% endif %}">
+        ${{ "{:,.2f}".format(pnl_summary.test_pnl) }}
+      </div>
+    </div>
+    <div class="card">
+      <label class="tip" data-tip="Number of closed trades that ended in profit vs total closed trades. A win rate above 50% is the baseline, but profitability also depends on your average win size vs average loss size.">
+        Win Rate
+      </label>
+      <div class="value {% if pnl_summary.win_rate >= 50 %}positive{% else %}negative{% endif %}">
+        {{ pnl_summary.win_rate }}%
+        <span style="font-size:13px; color:#64748b; font-weight:400;">/ {{ pnl_summary.closed_count }} trades</span>
+      </div>
+    </div>
+  </div>
+
   <!-- Analysis Log -->
   <div id="cycle-panel" style="display:none; margin-bottom:24px;">
     <div class="card">

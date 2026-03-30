@@ -118,3 +118,25 @@ def get_open_test_trades():
         return conn.execute(
             "SELECT * FROM trades WHERE status='open' AND is_test=1"
         ).fetchall()
+
+
+def get_pnl_summary():
+    """Returns realized P&L totals across all closed trades."""
+    with _conn() as conn:
+        row = conn.execute("""
+            SELECT
+                COALESCE(SUM(pnl), 0)                          AS total_pnl,
+                COALESCE(SUM(CASE WHEN is_test=0 THEN pnl END), 0) AS live_pnl,
+                COALESCE(SUM(CASE WHEN is_test=1 THEN pnl END), 0) AS test_pnl,
+                COUNT(CASE WHEN status='closed' THEN 1 END)    AS closed_count,
+                COUNT(CASE WHEN status='closed' AND pnl > 0 THEN 1 END) AS wins
+            FROM trades
+            WHERE status='closed' AND pnl IS NOT NULL
+        """).fetchone()
+    return {
+        "total_pnl":    round(row[0], 2),
+        "live_pnl":     round(row[1], 2),
+        "test_pnl":     round(row[2], 2),
+        "closed_count": row[3],
+        "win_rate":     round(row[4] / row[3] * 100, 1) if row[3] else 0,
+    }
