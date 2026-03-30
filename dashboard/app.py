@@ -22,7 +22,9 @@ _cycle_running = False
 _cycle_cancelled = False
 _cycle_log = []
 
-_test_mode = False
+# Auto-restore test mode if open test trades exist (survives server restarts)
+_test_mode = bool(get_open_test_trades())
+
 _test_params = {
     "bypass_hours":        True,
     "confidence_min":      0.60,
