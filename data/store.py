@@ -32,6 +32,15 @@ def init_db():
             )
         """)
         conn.execute("""
+            CREATE TABLE IF NOT EXISTS accounts (
+                account_id   TEXT PRIMARY KEY,
+                account_name TEXT,
+                api_key      TEXT,
+                last_used    TEXT,
+                user_id      TEXT
+            )
+        """)
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS signals (
                 id         INTEGER PRIMARY KEY AUTOINCREMENT,
                 created    TEXT NOT NULL,
@@ -176,6 +185,37 @@ def get_open_test_trades():
             "SELECT * FROM trades WHERE status='open' AND is_test=1 AND account_id=?",
             (_active_account_id,)
         ).fetchall()
+
+
+def save_account(account_id, account_name, api_key, user_id=None):
+    """Upsert a known account. Called on every successful connect/switch."""
+    with _conn() as conn:
+        conn.execute("""
+            INSERT INTO accounts (account_id, account_name, api_key, last_used, user_id)
+            VALUES (?, ?, ?, datetime('now'), ?)
+            ON CONFLICT(account_id) DO UPDATE SET
+                account_name = excluded.account_name,
+                api_key      = excluded.api_key,
+                last_used    = datetime('now')
+        """, (account_id, account_name, api_key, user_id))
+        conn.commit()
+
+
+def get_saved_accounts():
+    """Return all known accounts ordered by most recently used."""
+    with _conn() as conn:
+        return conn.execute(
+            "SELECT account_id, account_name, last_used FROM accounts ORDER BY last_used DESC"
+        ).fetchall()
+
+
+def get_account_api_key(account_id):
+    """Return the stored API key for a known account."""
+    with _conn() as conn:
+        row = conn.execute(
+            "SELECT api_key FROM accounts WHERE account_id=?", (account_id,)
+        ).fetchone()
+    return row[0] if row else None
 
 
 def get_pnl_summary(account_id=None):

@@ -388,33 +388,65 @@
 <body class="tooltips-on">
 
 <header>
-  <div style="display:flex; align-items:center; gap:20px;">
+  <div style="display:flex; align-items:center; gap:20px; position:relative;">
     <h1><span>Forex</span> Agent</h1>
     <div id="acct-display" class="tip"
-      data-tip="Currently active OANDA account. Click 'Switch' to point the agent at a different account. All trades, signals and P&L are stored per-account."
-      style="font-size:11px; color:#4b5563; display:flex; align-items:center; gap:6px;">
-      <span style="color:#2d3148;">▐</span>
-      <span id="acct-id-label" style="font-family:monospace; color:#64748b; letter-spacing:0.5px;">{{ current_account_id }}</span>
-      <button onclick="toggleAccountSwitcher()"
-        style="background:transparent; border:1px solid #2d3148; color:#64748b; font-size:11px; padding:3px 8px; border-radius:4px; cursor:pointer;">
-        Switch
-      </button>
+      data-tip="Currently active OANDA account. Click to switch accounts or add a new one."
+      style="display:flex; align-items:center; gap:8px; cursor:pointer;" onclick="toggleAccountSwitcher()">
+      <div style="width:1px; height:28px; background:#2d3148;"></div>
+      <div>
+        <div style="font-size:13px; font-weight:600; color:#e2e8f0; line-height:1.2;">{{ current_account_name }}</div>
+        <div style="font-size:10px; font-family:monospace; color:#4b5563; letter-spacing:0.3px;">{{ current_account_id }}</div>
+      </div>
+      <span style="font-size:10px; color:#4b5563;">▾</span>
     </div>
-    <div id="acct-switcher" style="display:none; align-items:center; gap:6px; flex-wrap:wrap;">
-      <input id="acct-input" type="text" placeholder="Account ID: 101-001-XXXXXXXX-XXX"
-        style="background:#1a1d27; border:1px solid #7c6af7; border-radius:5px; color:#e2e8f0; font-size:12px; padding:5px 10px; width:220px; font-family:monospace;"
-        onkeydown="if(event.key==='Enter') confirmAccountSwitch(); if(event.key==='Escape') toggleAccountSwitcher()">
-      <input id="apikey-input" type="text" placeholder="API Key (if different account)"
-        style="background:#1a1d27; border:1px solid #2d3148; border-radius:5px; color:#e2e8f0; font-size:12px; padding:5px 10px; width:260px; font-family:monospace;"
-        onkeydown="if(event.key==='Enter') confirmAccountSwitch(); if(event.key==='Escape') toggleAccountSwitcher()">
-      <button onclick="confirmAccountSwitch()"
-        style="background:#7c6af7; color:#fff; border:none; border-radius:5px; font-size:12px; padding:5px 12px; cursor:pointer;">
-        Confirm
-      </button>
-      <button onclick="toggleAccountSwitcher()"
-        style="background:transparent; border:1px solid #2d3148; color:#64748b; font-size:12px; padding:5px 10px; border-radius:5px; cursor:pointer;">
-        Cancel
-      </button>
+
+    <!-- Account switcher dropdown -->
+    <div id="acct-switcher" style="display:none; position:absolute; top:60px; left:0; z-index:2000;
+      background:#1a1d27; border:1px solid #2d3148; border-radius:8px;
+      box-shadow:0 8px 32px rgba(0,0,0,0.5); min-width:340px; overflow:hidden;">
+
+      {% if saved_accounts %}
+      <div style="padding:10px 14px 6px; font-size:10px; text-transform:uppercase; letter-spacing:1px; color:#4b5563;">Saved Accounts</div>
+      {% for acct in saved_accounts %}
+      <div onclick="switchToSaved('{{ acct[0] }}')"
+        style="padding:10px 14px; cursor:pointer; border-bottom:1px solid #1e2235;
+          {% if acct[0] == current_account_id %}background:#1e2235;{% endif %}"
+        onmouseover="this.style.background='#232640'" onmouseout="this.style.background='{% if acct[0] == current_account_id %}#1e2235{% else %}transparent{% endif %}'">
+        <div style="display:flex; align-items:center; justify-content:space-between;">
+          <div>
+            <div style="font-size:13px; color:#e2e8f0; font-weight:{% if acct[0] == current_account_id %}600{% else %}400{% endif %};">
+              {{ acct[1] or acct[0] }}
+              {% if acct[0] == current_account_id %}<span style="font-size:10px; color:#22c55e; margin-left:6px;">● active</span>{% endif %}
+            </div>
+            <div style="font-size:10px; font-family:monospace; color:#4b5563; margin-top:2px;">{{ acct[0] }}</div>
+          </div>
+          <div style="font-size:10px; color:#4b5563;">{{ acct[2][:10] if acct[2] else '' }}</div>
+        </div>
+      </div>
+      {% endfor %}
+      {% endif %}
+
+      <!-- Add new account -->
+      <div style="padding:12px 14px;">
+        <div style="font-size:10px; text-transform:uppercase; letter-spacing:1px; color:#4b5563; margin-bottom:8px;">Add New Account</div>
+        <input id="acct-input" type="text" placeholder="Account ID: 101-001-XXXXXXXX-XXX"
+          style="width:100%; background:#0f1117; border:1px solid #2d3148; border-radius:5px; color:#e2e8f0; font-size:12px; padding:6px 10px; font-family:monospace; margin-bottom:6px; box-sizing:border-box;"
+          onkeydown="if(event.key==='Enter') confirmAccountSwitch(); if(event.key==='Escape') toggleAccountSwitcher()">
+        <input id="apikey-input" type="password" placeholder="API Key (required for new account)"
+          style="width:100%; background:#0f1117; border:1px solid #2d3148; border-radius:5px; color:#e2e8f0; font-size:12px; padding:6px 10px; font-family:monospace; margin-bottom:8px; box-sizing:border-box;"
+          onkeydown="if(event.key==='Enter') confirmAccountSwitch(); if(event.key==='Escape') toggleAccountSwitcher()">
+        <div style="display:flex; gap:6px;">
+          <button onclick="confirmAccountSwitch()"
+            style="flex:1; background:#7c6af7; color:#fff; border:none; border-radius:5px; font-size:12px; padding:6px; cursor:pointer; font-weight:500;">
+            Connect
+          </button>
+          <button onclick="toggleAccountSwitcher()"
+            style="background:transparent; border:1px solid #2d3148; color:#64748b; font-size:12px; padding:6px 12px; border-radius:5px; cursor:pointer;">
+            Cancel
+          </button>
+        </div>
+      </div>
     </div>
   </div>
   <div class="controls">
@@ -1064,29 +1096,47 @@
   // ── Account Switcher ────────────────────────────────────────────────────
   function toggleAccountSwitcher() {
     const switcher = document.getElementById("acct-switcher");
-    const display  = document.getElementById("acct-display");
     const open = switcher.style.display === "none";
-    switcher.style.display = open ? "flex" : "none";
-    display.style.display  = open ? "none" : "flex";
+    switcher.style.display = open ? "block" : "none";
     if (open) setTimeout(() => document.getElementById("acct-input").focus(), 50);
+  }
+
+  // Close dropdown when clicking outside
+  document.addEventListener("click", e => {
+    const switcher = document.getElementById("acct-switcher");
+    const display  = document.getElementById("acct-display");
+    if (switcher && !switcher.contains(e.target) && !display.contains(e.target)) {
+      switcher.style.display = "none";
+    }
+  });
+
+  function _doSwitch(account_id, api_key) {
+    fetch("/api/switch-account", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ account_id, api_key: api_key || null })
+    }).then(r => r.json()).then(d => {
+      if (d.error) {
+        toast(d.error, "#ef4444");
+      } else {
+        toast(`Switched to ${d.account_name || d.account_id}`);
+        setTimeout(() => location.reload(), 800);
+      }
+    });
+  }
+
+  function switchToSaved(account_id) {
+    // Use stored API key — no need to re-enter
+    fetch("/api/saved-accounts").then(r => r.json()).then(accounts => {
+      _doSwitch(account_id, null);  // backend loads key from DB
+    });
   }
 
   function confirmAccountSwitch() {
     const newId  = document.getElementById("acct-input").value.trim();
     const apiKey = document.getElementById("apikey-input").value.trim();
     if (!newId) return;
-    fetch("/api/switch-account", {
-      method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({ account_id: newId, api_key: apiKey || null })
-    }).then(r => r.json()).then(d => {
-      if (d.error) {
-        toast(d.error, "#ef4444");
-      } else {
-        toast(`Switched to ${d.account_id}`);
-        setTimeout(() => location.reload(), 800);
-      }
-    });
+    _doSwitch(newId, apiKey);
   }
 
   // ── Test Panel collapse ──────────────────────────────────────────────────

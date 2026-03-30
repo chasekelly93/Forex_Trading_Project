@@ -11,7 +11,8 @@ from data.oanda_client import OandaClient
 from data import store
 from data.store import (
     get_recent_signals, get_open_trades, get_open_test_trades,
-    get_pnl_summary, get_setting, set_setting, set_active_account, init_db
+    get_pnl_summary, get_setting, set_setting, set_active_account, init_db,
+    save_account, get_saved_accounts, get_account_api_key,
 )
 from execution.executor import Executor
 
@@ -32,16 +33,50 @@ client.account_id = _current_account_id
 executor.client.account_id = _current_account_id
 executor.risk.client.account_id = _current_account_id
 
+_current_account_name = "—"
 
-def _apply_account(account_id):
+
+def _fetch_and_save_account(account_id, api_key):
+    """Fetch account name from OANDA and persist to the accounts table."""
+    global _current_account_name
+    try:
+        acct = client.get_account()
+        name = acct.get("alias") or acct.get("id") or account_id
+    except Exception:
+        name = account_id
+    _current_account_name = name
+    save_account(account_id, name, api_key)
+    return name
+
+
+# Register current account on startup
+try:
+    from config import OANDA_API_KEY as _startup_key
+    _fetch_and_save_account(_current_account_id, _startup_key)
+except Exception:
+    pass
+
+
+def _apply_account(account_id, api_key=None):
     """Update all runtime objects to use a new account ID."""
-    global _current_account_id, client, executor
+    global _current_account_id, _current_account_name
     _current_account_id = account_id
     set_active_account(account_id)
     set_setting("account_id", account_id)
     client.account_id = account_id
     executor.client.account_id = account_id
     executor.risk.client.account_id = account_id
+    used_key = api_key or get_account_api_key(account_id) or ""
+    if used_key:
+        from oandapyV20 import API as OandaAPI
+        from config import OANDA_ENVIRONMENT
+        env = "practice" if OANDA_ENVIRONMENT == "practice" else "live"
+        new_api = OandaAPI(access_token=used_key, environment=env)
+        client.client = new_api
+        executor.client.client = new_api
+        executor.risk.client.client = new_api
+        _update_env("OANDA_API_KEY", used_key)
+    _fetch_and_save_account(account_id, used_key)
 
 
 # ── In-memory state (resets on server restart) ─────────────────────────────
@@ -117,6 +152,7 @@ def index():
     test_pairs       = {t[3] for t in get_open_test_trades()}
     pnl_summary      = get_pnl_summary(account_id=_current_account_id)
     pnl_summary_all  = get_pnl_summary(account_id=None)
+    saved_accounts   = get_saved_accounts()
 
     return render_template(
         "index.html",
@@ -132,6 +168,8 @@ def index():
         test_mode=_test_mode,
         test_params=_test_params,
         current_account_id=_current_account_id,
+        current_account_name=_current_account_name,
+        saved_accounts=saved_accounts,
     )
 
 
@@ -173,12 +211,8 @@ def api_switch_account():
     except Exception as e:
         return jsonify({"error": f"OANDA rejected: {e}"}), 422
 
-    # Persist new API key to .env if provided
-    if new_key:
-        _update_env("OANDA_API_KEY", new_key)
-
-    _apply_account(new_id)
-    return jsonify({"status": "switched", "account_id": new_id})
+    _apply_account(new_id, api_key=new_key)
+    return jsonify({"status": "switched", "account_id": new_id, "account_name": _current_account_name})
 
 
 def _update_env(key, value):
@@ -203,6 +237,15 @@ def _update_env(key, value):
         client.client = new_api
         executor.client.client = new_api
         executor.risk.client.client = new_api
+
+
+@app.route("/api/saved-accounts")
+def api_saved_accounts():
+    rows = get_saved_accounts()
+    return jsonify([
+        {"account_id": r[0], "account_name": r[1], "last_used": r[2]}
+        for r in rows
+    ])
 
 
 @app.route("/api/pause", methods=["POST"])
