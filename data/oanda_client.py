@@ -65,8 +65,24 @@ class OandaClient:
         return r.response
 
     def close_position(self, pair):
-        """Close all units of an open position."""
-        data = {"longUnits": "ALL", "shortUnits": "ALL"}
-        r = positions.PositionClose(accountID=self.account_id, instrument=pair, data=data)
+        """Close all units of an open position, detecting which side is open."""
+        # First check which side exists
+        r = positions.PositionDetails(accountID=self.account_id, instrument=pair)
         self.client.request(r)
-        return r.response
+        pos = r.response.get("position", {})
+
+        long_units = int(pos.get("long", {}).get("units", 0))
+        short_units = int(pos.get("short", {}).get("units", 0))
+
+        data = {}
+        if long_units > 0:
+            data["longUnits"] = "ALL"
+        if short_units < 0:
+            data["shortUnits"] = "ALL"
+
+        if not data:
+            return {"message": "No open units to close"}
+
+        r2 = positions.PositionClose(accountID=self.account_id, instrument=pair, data=data)
+        self.client.request(r2)
+        return r2.response
