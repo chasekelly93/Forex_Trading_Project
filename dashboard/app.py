@@ -152,9 +152,11 @@ def api_account():
 
 @app.route("/api/switch-account", methods=["POST"])
 def api_switch_account():
-    """Validate and switch to a new OANDA account ID."""
-    data = request.get_json()
+    """Validate and switch to a new OANDA account ID, optionally updating the API key."""
+    data   = request.get_json()
     new_id = (data.get("account_id") or "").strip()
+    new_key = (data.get("api_key") or "").strip() or None
+
     if not new_id:
         return jsonify({"error": "account_id is required"}), 400
 
@@ -162,12 +164,45 @@ def api_switch_account():
     try:
         test_client = OandaClient()
         test_client.account_id = new_id
+        if new_key:
+            from oandapyV20 import API as OandaAPI
+            from config import OANDA_ENVIRONMENT
+            env = "practice" if OANDA_ENVIRONMENT == "practice" else "live"
+            test_client.client = OandaAPI(access_token=new_key, environment=env)
         test_client.get_account()  # throws if invalid
     except Exception as e:
-        return jsonify({"error": f"OANDA rejected account ID: {e}"}), 422
+        return jsonify({"error": f"OANDA rejected: {e}"}), 422
+
+    # Persist new API key to .env if provided
+    if new_key:
+        _update_env("OANDA_API_KEY", new_key)
 
     _apply_account(new_id)
     return jsonify({"status": "switched", "account_id": new_id})
+
+
+def _update_env(key, value):
+    """Update a single key in the .env file."""
+    env_path = Path(__file__).parent.parent / ".env"
+    lines = env_path.read_text().splitlines()
+    updated = False
+    for i, line in enumerate(lines):
+        if line.startswith(f"{key}="):
+            lines[i] = f"{key}={value}"
+            updated = True
+            break
+    if not updated:
+        lines.append(f"{key}={value}")
+    env_path.write_text("\n".join(lines) + "\n")
+    # Also update the live client objects immediately
+    if key == "OANDA_API_KEY":
+        from oandapyV20 import API as OandaAPI
+        from config import OANDA_ENVIRONMENT
+        env = "practice" if OANDA_ENVIRONMENT == "practice" else "live"
+        new_api = OandaAPI(access_token=value, environment=env)
+        client.client = new_api
+        executor.client.client = new_api
+        executor.risk.client.client = new_api
 
 
 @app.route("/api/pause", methods=["POST"])

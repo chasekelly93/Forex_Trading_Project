@@ -400,9 +400,12 @@
         Switch
       </button>
     </div>
-    <div id="acct-switcher" style="display:none; align-items:center; gap:6px;">
-      <input id="acct-input" type="text" placeholder="101-001-XXXXXXXX-XXX"
-        style="background:#1a1d27; border:1px solid #7c6af7; border-radius:5px; color:#e2e8f0; font-size:12px; padding:5px 10px; width:200px; font-family:monospace;"
+    <div id="acct-switcher" style="display:none; align-items:center; gap:6px; flex-wrap:wrap;">
+      <input id="acct-input" type="text" placeholder="Account ID: 101-001-XXXXXXXX-XXX"
+        style="background:#1a1d27; border:1px solid #7c6af7; border-radius:5px; color:#e2e8f0; font-size:12px; padding:5px 10px; width:220px; font-family:monospace;"
+        onkeydown="if(event.key==='Enter') confirmAccountSwitch(); if(event.key==='Escape') toggleAccountSwitcher()">
+      <input id="apikey-input" type="text" placeholder="API Key (if different account)"
+        style="background:#1a1d27; border:1px solid #2d3148; border-radius:5px; color:#e2e8f0; font-size:12px; padding:5px 10px; width:260px; font-family:monospace;"
         onkeydown="if(event.key==='Enter') confirmAccountSwitch(); if(event.key==='Escape') toggleAccountSwitcher()">
       <button onclick="confirmAccountSwitch()"
         style="background:#7c6af7; color:#fff; border:none; border-radius:5px; font-size:12px; padding:5px 12px; cursor:pointer;">
@@ -1069,12 +1072,13 @@
   }
 
   function confirmAccountSwitch() {
-    const newId = document.getElementById("acct-input").value.trim();
+    const newId  = document.getElementById("acct-input").value.trim();
+    const apiKey = document.getElementById("apikey-input").value.trim();
     if (!newId) return;
     fetch("/api/switch-account", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({ account_id: newId })
+      body: JSON.stringify({ account_id: newId, api_key: apiKey || null })
     }).then(r => r.json()).then(d => {
       if (d.error) {
         toast(d.error, "#ef4444");
