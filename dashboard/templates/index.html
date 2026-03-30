@@ -45,7 +45,26 @@
       transition: opacity 0.15s;
     }
     .btn:hover { opacity: 0.85; }
-    .btn-run    { background: #7c6af7; color: #fff; }
+    .btn-run    { background: #7c6af7; color: #fff; position: relative; overflow: hidden; min-width: 140px; }
+    .btn-run.running {
+      background: #2d2060;
+      color: #a89cf7;
+      cursor: not-allowed;
+      pointer-events: none;
+    }
+    .btn-run.running::after {
+      content: '';
+      position: absolute;
+      top: 0; left: -100%;
+      height: 100%;
+      width: 60%;
+      background: linear-gradient(90deg, transparent, rgba(124,106,247,0.5), transparent);
+      animation: sweep 1.4s ease-in-out infinite;
+    }
+    @keyframes sweep {
+      0%   { left: -60%; }
+      100% { left: 140%; }
+    }
     .btn-pause  { background: #f59e0b; color: #000; }
     .btn-resume { background: #22c55e; color: #000; }
     .btn-danger { background: #ef4444; color: #fff; }
@@ -545,27 +564,29 @@
   }
 
   // ── Run Analysis ────────────────────────────────────────────────────────
-  function runCycle() {
+  function setRunning(on) {
     const btn = document.getElementById("run-btn");
-    btn.disabled = true;
-    btn.textContent = "Running...";
+    if (on) {
+      btn.classList.add("running");
+      btn.innerHTML = "Analyzing...";
+      document.getElementById("cycle-panel").style.display = "block";
+    } else {
+      btn.classList.remove("running");
+      btn.innerHTML = "&#9654; Run Analysis";
+      document.getElementById("cycle-panel").style.display = "none";
+    }
+  }
 
+  function runCycle() {
     fetch("/api/run-cycle", { method: "POST" })
       .then(r => r.json())
       .then(d => {
-        if (d.status === "already_running") {
-          toast("Cycle already in progress", "#f59e0b");
-          btn.disabled = false;
-          btn.innerHTML = "&#9654; Run Analysis";
-          return;
-        }
+        if (d.status === "already_running") return; // button already in running state
         if (d.status === "paused") {
           toast("Agent is paused — resume first", "#f59e0b");
-          btn.disabled = false;
-          btn.innerHTML = "&#9654; Run Analysis";
           return;
         }
-        document.getElementById("cycle-panel").style.display = "block";
+        setRunning(true);
         pollCycleStatus();
       });
   }
@@ -580,13 +601,17 @@
         if (d.running) {
           setTimeout(pollCycleStatus, 2000);
         } else {
-          document.getElementById("run-btn").disabled = false;
-          document.getElementById("run-btn").innerHTML = "&#9654; Run Analysis";
+          setRunning(false);
           toast("Analysis complete — refreshing...");
           setTimeout(() => location.reload(), 1500);
         }
       });
   }
+
+  // On page load, check if a cycle is already running (e.g. after a manual refresh mid-cycle)
+  fetch("/api/cycle-status").then(r => r.json()).then(d => {
+    if (d.running) { setRunning(true); pollCycleStatus(); }
+  });
 
   // ── Agent controls ──────────────────────────────────────────────────────
   function pauseAgent() {
