@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Forex Agent Dashboard</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #0f1117;
+      color: #e2e8f0;
+      min-height: 100vh;
+    }
+
+    header {
+      background: #1a1d27;
+      border-bottom: 1px solid #2d3148;
+      padding: 16px 32px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    header h1 { font-size: 18px; font-weight: 600; letter-spacing: 0.5px; }
+    header h1 span { color: #7c6af7; }
+
+    .status-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      display: inline-block; margin-right: 6px;
+    }
+    .status-dot.live { background: #22c55e; box-shadow: 0 0 6px #22c55e; }
+    .status-dot.paused { background: #f59e0b; box-shadow: 0 0 6px #f59e0b; }
+
+    .controls {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .btn {
+      padding: 8px 16px;
+      border-radius: 6px;
+      border: none;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+    .btn:hover { opacity: 0.85; }
+    .btn-pause  { background: #f59e0b; color: #000; }
+    .btn-resume { background: #22c55e; color: #000; }
+    .btn-danger { background: #ef4444; color: #fff; }
+
+    main { padding: 28px 32px; max-width: 1400px; margin: 0 auto; }
+
+    /* Cards */
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
+      margin-bottom: 28px;
+    }
+
+    .card {
+      background: #1a1d27;
+      border: 1px solid #2d3148;
+      border-radius: 10px;
+      padding: 20px;
+    }
+
+    .card label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: #64748b;
+      display: block;
+      margin-bottom: 8px;
+    }
+
+    .card .value {
+      font-size: 26px;
+      font-weight: 600;
+    }
+
+    .card .value.positive { color: #22c55e; }
+    .card .value.negative { color: #ef4444; }
+    .card .value.neutral  { color: #e2e8f0; }
+
+    /* Section headers */
+    .section { margin-bottom: 28px; }
+    .section h2 {
+      font-size: 14px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: #7c6af7;
+      margin-bottom: 14px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid #2d3148;
+    }
+
+    /* Tables */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    th {
+      text-align: left;
+      padding: 10px 12px;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: #64748b;
+      border-bottom: 1px solid #2d3148;
+    }
+
+    td {
+      padding: 11px 12px;
+      border-bottom: 1px solid #1e2235;
+      vertical-align: top;
+    }
+
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #1e2235; }
+
+    .tag {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+    }
+
+    .tag-buy    { background: #14532d; color: #22c55e; }
+    .tag-sell   { background: #450a0a; color: #ef4444; }
+    .tag-no     { background: #1e293b; color: #64748b; }
+    .tag-open   { background: #1e3a5f; color: #60a5fa; }
+    .tag-closed { background: #1e293b; color: #64748b; }
+
+    .reasoning-cell {
+      max-width: 420px;
+      color: #94a3b8;
+      line-height: 1.5;
+    }
+
+    .empty-state {
+      color: #4b5563;
+      font-size: 13px;
+      padding: 24px 12px;
+      text-align: center;
+    }
+
+    .close-btn {
+      padding: 4px 10px;
+      font-size: 11px;
+      border-radius: 4px;
+      border: 1px solid #ef4444;
+      background: transparent;
+      color: #ef4444;
+      cursor: pointer;
+    }
+    .close-btn:hover { background: #ef4444; color: #fff; }
+
+    #toast {
+      position: fixed;
+      bottom: 24px; right: 24px;
+      background: #1a1d27;
+      border: 1px solid #2d3148;
+      border-radius: 8px;
+      padding: 12px 18px;
+      font-size: 13px;
+      display: none;
+      z-index: 999;
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+    }
+
+    @media (max-width: 900px) { .grid-2 { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1><span>Forex</span> Agent</h1>
+  <div class="controls">
+    <span id="agent-status">
+      <span class="status-dot {% if paused %}paused{% else %}live{% endif %}"></span>
+      {% if paused %}Paused{% else %}Live{% endif %}
+    </span>
+    {% if paused %}
+      <button class="btn btn-resume" onclick="resumeAgent()">Resume Agent</button>
+    {% else %}
+      <button class="btn btn-pause" onclick="pauseAgent()">Pause Agent</button>
+    {% endif %}
+    <button class="btn btn-danger" onclick="confirmCloseAll()">Close All Positions</button>
+  </div>
+</header>
+
+<main>
+
+  <!-- Account Summary -->
+  <div class="cards">
+    {% if account.error is defined %}
+      <div class="card"><label>Status</label><div class="value negative">API Error</div></div>
+    {% else %}
+      <div class="card">
+        <label>Account Balance</label>
+        <div class="value neutral">${{ "{:,.2f}".format(account.balance) }}</div>
+      </div>
+      <div class="card">
+        <label>Net Asset Value</label>
+        <div class="value neutral">${{ "{:,.2f}".format(account.nav) }}</div>
+      </div>
+      <div class="card">
+        <label>Open P&amp;L</label>
+        <div class="value {% if account.open_pnl >= 0 %}positive{% else %}negative{% endif %}">
+          ${{ "{:,.2f}".format(account.open_pnl) }}
+        </div>
+      </div>
+      <div class="card">
+        <label>Open Positions</label>
+        <div class="value neutral">{{ positions | length }}</div>
+      </div>
+      <div class="card">
+        <label>Currency</label>
+        <div class="value neutral">{{ account.currency }}</div>
+      </div>
+    {% endif %}
+  </div>
+
+  <div class="grid-2">
+
+    <!-- Open Positions -->
+    <div class="section">
+      <h2>Open Positions</h2>
+      {% if positions %}
+        <table>
+          <thead>
+            <tr>
+              <th>Pair</th><th>Side</th><th>Units</th><th>Unrealized P&L</th><th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for pos in positions %}
+            <tr>
+              <td>{{ pos.instrument }}</td>
+              <td>
+                {% if pos.long.units | int > 0 %}
+                  <span class="tag tag-buy">LONG</span>
+                {% else %}
+                  <span class="tag tag-sell">SHORT</span>
+                {% endif %}
+              </td>
+              <td>{{ pos.long.units if pos.long.units | int > 0 else pos.short.units }}</td>
+              <td class="{% if pos.unrealizedPL | float >= 0 %}positive{% else %}negative{% endif %}">
+                ${{ "{:,.2f}".format(pos.unrealizedPL | float) }}
+              </td>
+              <td>
+                <button class="close-btn" onclick="closePosition('{{ pos.instrument }}')">Close</button>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <div class="empty-state">No open positions</div>
+      {% endif %}
+    </div>
+
+    <!-- Recent Signals -->
+    <div class="section">
+      <h2>Recent Signals</h2>
+      {% if signals %}
+        <table>
+          <thead>
+            <tr><th>Time</th><th>Pair</th><th>TF</th><th>Signal</th><th>Conf.</th></tr>
+          </thead>
+          <tbody>
+            {% for s in signals %}
+            <tr>
+              <td style="color:#64748b; white-space:nowrap;">{{ s[1][:16] }}</td>
+              <td>{{ s[2] }}</td>
+              <td>{{ s[3] }}</td>
+              <td>
+                <span class="tag {% if s[4]=='BUY' %}tag-buy{% elif s[4]=='SELL' %}tag-sell{% else %}tag-no{% endif %}">
+                  {{ s[4] }}
+                </span>
+              </td>
+              <td>{{ "{:.0%}".format(s[5]) if s[5] else "—" }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <div class="empty-state">No signals yet — run a cycle to generate signals</div>
+      {% endif %}
+    </div>
+
+  </div>
+
+  <!-- Trade History -->
+  <div class="section">
+    <h2>Trade History</h2>
+    {% if trades %}
+      <table>
+        <thead>
+          <tr>
+            <th>Opened</th><th>Pair</th><th>Direction</th>
+            <th>Units</th><th>Open Price</th><th>Close Price</th>
+            <th>P&amp;L</th><th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for t in trades %}
+          <tr>
+            <td style="color:#64748b; white-space:nowrap;">{{ t[1][:16] }}</td>
+            <td>{{ t[3] }}</td>
+            <td>
+              <span class="tag {% if t[4]=='BUY' %}tag-buy{% else %}tag-sell{% endif %}">{{ t[4] }}</span>
+            </td>
+            <td>{{ "{:,}".format(t[5]) if t[5] else "—" }}</td>
+            <td>{{ t[6] or "—" }}</td>
+            <td>{{ t[7] or "—" }}</td>
+            <td class="{% if t[8] and t[8] >= 0 %}positive{% elif t[8] %}negative{% endif %}">
+              {% if t[8] is not none %}${{ "{:,.2f}".format(t[8]) }}{% else %}—{% endif %}
+            </td>
+            <td>
+              <span class="tag {% if t[9]=='open' %}tag-open{% else %}tag-closed{% endif %}">{{ t[9] }}</span>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <div class="empty-state">No trades yet</div>
+    {% endif %}
+  </div>
+
+  <!-- Claude Reasoning Log -->
+  <div class="section">
+    <h2>Claude Reasoning Log</h2>
+    {% if signals %}
+      <table>
+        <thead>
+          <tr><th>Time</th><th>Pair</th><th>Signal</th><th>Reasoning</th></tr>
+        </thead>
+        <tbody>
+          {% for s in signals %}
+          {% if s[6] %}
+          <tr>
+            <td style="color:#64748b; white-space:nowrap; width:130px;">{{ s[1][:16] }}</td>
+            <td style="white-space:nowrap;">{{ s[2] }}</td>
+            <td style="white-space:nowrap;">
+              <span class="tag {% if s[4]=='BUY' %}tag-buy{% elif s[4]=='SELL' %}tag-sell{% else %}tag-no{% endif %}">
+                {{ s[4] }}
+              </span>
+            </td>
+            <td class="reasoning-cell">{{ s[6] }}</td>
+          </tr>
+          {% endif %}
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <div class="empty-state">No reasoning logged yet</div>
+    {% endif %}
+  </div>
+
+</main>
+
+<div id="toast"></div>
+
+<script>
+  function toast(msg, color="#22c55e") {
+    const t = document.getElementById("toast");
+    t.textContent = msg;
+    t.style.borderColor = color;
+    t.style.display = "block";
+    setTimeout(() => t.style.display = "none", 3000);
+  }
+
+  function pauseAgent() {
+    fetch("/api/pause", { method: "POST" })
+      .then(() => { toast("Agent paused", "#f59e0b"); setTimeout(() => location.reload(), 800); });
+  }
+
+  function resumeAgent() {
+    fetch("/api/resume", { method: "POST" })
+      .then(() => { toast("Agent resumed"); setTimeout(() => location.reload(), 800); });
+  }
+
+  function confirmCloseAll() {
+    if (!confirm("Close ALL open positions immediately?")) return;
+    fetch("/api/close-all", { method: "POST" })
+      .then(r => r.json())
+      .then(d => { toast("All positions closed", "#ef4444"); setTimeout(() => location.reload(), 1000); });
+  }
+
+  function closePosition(instrument) {
+    if (!confirm(`Close ${instrument}?`)) return;
+    fetch(`/api/close/${instrument}`, { method: "POST" })
+      .then(r => r.json())
+      .then(d => { toast(`${instrument} closed`); setTimeout(() => location.reload(), 800); });
+  }
+
+  // Auto-refresh account numbers every 30s without full page reload
+  setInterval(() => {
+    fetch("/api/account")
+      .then(r => r.json())
+      .then(d => {
+        if (d.error) return;
+        // Could update specific DOM elements here in a future enhancement
+      });
+  }, 30000);
+</script>
+
+</body>
+</html>
