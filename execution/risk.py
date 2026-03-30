@@ -103,20 +103,25 @@ class RiskEngine:
 
     def check_market_hours(self):
         """
-        Forex market is closed Saturday ~22:00 UTC to Sunday ~22:00 UTC.
+        Only trade during peak session: London/NY overlap 13:00–17:00 UTC, Mon–Fri.
+        This is when volume is highest, spreads are tightest, and signals are most reliable.
         Returns (ok, message).
         """
         now = datetime.now(timezone.utc)
         weekday = now.weekday()  # 0=Mon, 5=Sat, 6=Sun
         hour = now.hour
 
-        # Saturday after 22:00 UTC or all day Sunday until 22:00 UTC
+        # Weekend block
         if weekday == 5 and hour >= 22:
             return False, "Market closed — weekend (Saturday after 22:00 UTC)"
         if weekday == 6 and hour < 22:
             return False, "Market closed — weekend (Sunday before 22:00 UTC)"
 
-        return True, "Market open"
+        # Off-peak block — only trade during London/NY overlap
+        if not (13 <= hour < 17):
+            return False, f"Off-peak hours ({hour:02d}:00 UTC) — agent executes only 13:00–17:00 UTC (London/NY overlap)"
+
+        return True, "Peak session active (London/NY overlap)"
 
     def approve(self, pair, thesis):
         """

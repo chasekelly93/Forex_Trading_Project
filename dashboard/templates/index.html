@@ -310,6 +310,41 @@
 
 <main>
 
+  <!-- Market Clock -->
+  <div id="market-clock" style="margin-bottom:20px;">
+    <div class="card" style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:16px; padding:16px 24px;">
+      <div style="display:flex; align-items:center; gap:24px; flex-wrap:wrap;">
+        <div>
+          <div style="font-size:11px; text-transform:uppercase; letter-spacing:1px; color:#64748b; margin-bottom:4px;">Your Local Time</div>
+          <div id="clock-local" style="font-size:20px; font-weight:600; font-variant-numeric:tabular-nums;">—</div>
+          <div id="clock-tz" style="font-size:11px; color:#64748b; margin-top:2px;">—</div>
+        </div>
+        <div style="width:1px; height:40px; background:#2d3148;"></div>
+        <div>
+          <div style="font-size:11px; text-transform:uppercase; letter-spacing:1px; color:#64748b; margin-bottom:4px;">UTC Time</div>
+          <div id="clock-utc" style="font-size:20px; font-weight:600; font-variant-numeric:tabular-nums;">—</div>
+          <div style="font-size:11px; color:#64748b; margin-top:2px;">Reference clock</div>
+        </div>
+        <div style="width:1px; height:40px; background:#2d3148;"></div>
+        <div>
+          <div style="font-size:11px; text-transform:uppercase; letter-spacing:1px; color:#64748b; margin-bottom:4px; display:flex; align-items:center; gap:6px;">
+            Market Session
+            <span class="tip" data-tip="The London/New York overlap (13:00–17:00 UTC) is peak trading time — highest volume, tightest spreads, most reliable signals. Outside this window, markets are thinner and more prone to false moves. The agent only executes trades during this window.">?</span>
+          </div>
+          <div id="session-status" style="font-size:16px; font-weight:600;">—</div>
+          <div id="session-detail" style="font-size:11px; color:#64748b; margin-top:2px;">—</div>
+        </div>
+      </div>
+      <div style="text-align:right;">
+        <div style="font-size:11px; text-transform:uppercase; letter-spacing:1px; color:#64748b; margin-bottom:6px;">
+          <span class="tip" data-tip="Peak hours = London/New York session overlap (13:00–17:00 UTC). This is when EUR/USD, GBP/USD, and USD pairs have the highest liquidity. The agent is restricted to this window to avoid poor fills and false signals in thin markets.">Next Peak Session</span>
+        </div>
+        <div id="countdown" style="font-size:26px; font-weight:700; font-variant-numeric:tabular-nums; color:#7c6af7;">—</div>
+        <div id="countdown-label" style="font-size:11px; color:#64748b; margin-top:2px;">—</div>
+      </div>
+    </div>
+  </div>
+
   <!-- Account Summary -->
   <div class="cards">
     {% if account.error is defined %}
@@ -655,6 +690,131 @@
   setInterval(() => {
     fetch("/api/account").then(r => r.json()).then(d => { /* future live updates */ });
   }, 30000);
+
+  // ── Market Clock ────────────────────────────────────────────────────────
+  // Peak session: London/NY overlap = 13:00–17:00 UTC Mon–Fri
+  const PEAK_START_UTC = 13; // hour
+  const PEAK_END_UTC   = 17;
+
+  function pad(n) { return String(n).padStart(2, "0"); }
+
+  function formatHHMMSS(date, tz) {
+    return date.toLocaleTimeString("en-US", {
+      timeZone: tz,
+      hour: "2-digit", minute: "2-digit", second: "2-digit",
+      hour12: true
+    });
+  }
+
+  function getUTCParts(now) {
+    return {
+      h: now.getUTCHours(),
+      m: now.getUTCMinutes(),
+      s: now.getUTCSeconds(),
+      day: now.getUTCDay() // 0=Sun, 6=Sat
+    };
+  }
+
+  function secondsUntilNextPeak(now) {
+    const { h, m, s, day } = getUTCParts(now);
+    const totalUTCSeconds = h * 3600 + m * 60 + s;
+    const peakStartSeconds = PEAK_START_UTC * 3600;
+    const peakEndSeconds   = PEAK_END_UTC   * 3600;
+
+    // Currently in peak — return 0
+    if (day >= 1 && day <= 5 && totalUTCSeconds >= peakStartSeconds && totalUTCSeconds < peakEndSeconds) {
+      return 0;
+    }
+
+    // Find next weekday 13:00 UTC
+    let daysAhead = 0;
+    let targetDay = day;
+    for (let i = 0; i < 7; i++) {
+      const d = (day + i) % 7;
+      if (d >= 1 && d <= 5) {
+        // It's a weekday — is 13:00 still ahead today?
+        if (i === 0 && totalUTCSeconds < peakStartSeconds) {
+          daysAhead = 0; break;
+        } else if (i > 0) {
+          daysAhead = i; break;
+        }
+      }
+    }
+
+    const nowTotal = totalUTCSeconds;
+    const targetTotal = daysAhead * 86400 + peakStartSeconds;
+    return targetTotal - nowTotal;
+  }
+
+  function formatCountdown(secs) {
+    if (secs <= 0) return "NOW";
+    const h = Math.floor(secs / 3600);
+    const m = Math.floor((secs % 3600) / 60);
+    const s = secs % 60;
+    if (h > 0) return `${h}h ${pad(m)}m ${pad(s)}s`;
+    if (m > 0) return `${m}m ${pad(s)}s`;
+    return `${s}s`;
+  }
+
+  function getUserTZ() {
+    try { return Intl.DateTimeFormat().resolvedOptions().timeZone; }
+    catch(e) { return "UTC"; }
+  }
+
+  function tickClock() {
+    const now = new Date();
+    const tz  = getUserTZ();
+    const { h, m, s, day } = getUTCParts(now);
+
+    // Local time
+    document.getElementById("clock-local").textContent = formatHHMMSS(now, tz);
+    document.getElementById("clock-tz").textContent = tz.replace(/_/g, " ");
+
+    // UTC time
+    document.getElementById("clock-utc").textContent =
+      `${pad(h)}:${pad(m)}:${pad(s)}`;
+
+    // Session status
+    const isWeekend = day === 0 || day === 6;
+    const utcDecimal = h + m / 60;
+    const inPeak = !isWeekend && utcDecimal >= PEAK_START_UTC && utcDecimal < PEAK_END_UTC;
+    const inSession = !isWeekend; // broader market open
+
+    const statusEl  = document.getElementById("session-status");
+    const detailEl  = document.getElementById("session-detail");
+    const countEl   = document.getElementById("countdown");
+    const labelEl   = document.getElementById("countdown-label");
+
+    if (isWeekend) {
+      statusEl.textContent = "⏸ Weekend";
+      statusEl.style.color = "#64748b";
+      detailEl.textContent = "Market closed — reopens Sun 22:00 UTC";
+    } else if (inPeak) {
+      statusEl.textContent = "🟢 Peak Session";
+      statusEl.style.color = "#22c55e";
+      const endsIn = (PEAK_END_UTC * 3600) - (h * 3600 + m * 60 + s);
+      detailEl.textContent = `London/NY overlap — closes in ${formatCountdown(endsIn)}`;
+    } else {
+      statusEl.textContent = "🟡 Off-Peak";
+      statusEl.style.color = "#f59e0b";
+      detailEl.textContent = "Market open — agent holds until peak session";
+    }
+
+    // Countdown
+    const secsLeft = secondsUntilNextPeak(now);
+    if (secsLeft === 0) {
+      countEl.textContent = "ACTIVE";
+      countEl.style.color = "#22c55e";
+      labelEl.textContent = "Peak session running now";
+    } else {
+      countEl.textContent = formatCountdown(secsLeft);
+      countEl.style.color = "#7c6af7";
+      labelEl.textContent = `Until London/NY open (${PEAK_START_UTC}:00 UTC)`;
+    }
+  }
+
+  tickClock();
+  setInterval(tickClock, 1000);
 </script>
 
 </body>
