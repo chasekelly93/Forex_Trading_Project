@@ -95,6 +95,7 @@
       gap: 8px;
       letter-spacing: 0.5px;
     }
+    #test-banner:hover { filter: brightness(1.15); }
 
     /* Test mode settings panel */
     #test-panel {
@@ -428,11 +429,12 @@
 </header>
 
 {% if test_mode %}
-<div id="test-banner">
+<div id="test-banner" onclick="toggleTestPanel()" style="cursor:pointer; user-select:none;">
   <span>⚠</span>
   <strong>TEST MODE ACTIVE</strong>
   <span>—</span>
   <span>Peak hour restriction bypassed. Custom risk parameters are in effect. Trades will still execute.</span>
+  <span id="test-panel-chevron" style="margin-left:auto; font-size:11px; color:#f59e0b99;">▲ collapse</span>
 </div>
 {% endif %}
 
@@ -1018,6 +1020,28 @@
       .then(r => r.json())
       .then(d => { toast(`${instrument} closed`); setTimeout(() => location.reload(), 800); });
   }
+
+  // ── Test Panel collapse ──────────────────────────────────────────────────
+  function toggleTestPanel() {
+    const panel   = document.getElementById("test-panel");
+    const chevron = document.getElementById("test-panel-chevron");
+    if (!panel || !chevron) return;
+    const collapsed = panel.style.display === "none";
+    panel.style.display = collapsed ? "" : "none";
+    chevron.textContent = collapsed ? "▲ collapse" : "▼ expand";
+    localStorage.setItem("testPanelCollapsed", collapsed ? "0" : "1");
+  }
+
+  // Restore collapsed state on load
+  (function() {
+    const panel   = document.getElementById("test-panel");
+    const chevron = document.getElementById("test-panel-chevron");
+    if (!panel || !chevron) return;
+    if (localStorage.getItem("testPanelCollapsed") === "1") {
+      panel.style.display = "none";
+      chevron.textContent = "▼ expand";
+    }
+  })();
 
   // ── Test Mode ────────────────────────────────────────────────────────────
   function toggleTestMode() {
