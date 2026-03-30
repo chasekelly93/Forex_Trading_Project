@@ -1,0 +1,85 @@
+"""
+Trade executor — takes an approved thesis and places the order via OANDA.
+Never call this directly; always go through RiskEngine.approve() first.
+"""
+from data.oanda_client import OandaClient
+from data.store import save_trade, close_trade, get_open_trades, save_snapshot
+from execution.risk import RiskEngine
+
+
+class Executor:
+    def __init__(self):
+        self.client = OandaClient()
+        self.risk = RiskEngine()
+
+    def execute(self, thesis):
+        """
+        Main entry point. Runs risk checks, then places the trade if approved.
+        Returns a result dict describing what happened.
+        """
+        pair = thesis["pair"]
+        direction = thesis.get("direction")
+
+        print(f"\n[EXECUTOR] {pair} | Direction: {direction} | Confidence: {thesis.get('confidence', 0):.0%}")
+
+        approved, reason, units = self.risk.approve(pair, thesis)
+
+        if not approved:
+            print(f"[BLOCKED] {reason}")
+            return {"status": "blocked", "reason": reason, "pair": pair}
+
+        print(f"[APPROVED] {reason} | Units: {units:+,}")
+
+        # Place the order
+        try:
+            response = self.client.place_market_order(pair, units)
+            order_fill = response.get("orderFillTransaction", {})
+            fill_price = float(order_fill.get("price", 0))
+            trade_id = order_fill.get("tradeOpened", {}).get("tradeID")
+
+            # Save to DB
+            save_trade(
+                pair=pair,
+                direction=direction,
+                units=abs(units),
+                open_price=fill_price,
+            )
+
+            print(f"[FILLED] Trade ID: {trade_id} | Fill price: {fill_price}")
+            return {
+                "status": "filled",
+                "pair": pair,
+                "direction": direction,
+                "units": units,
+                "fill_price": fill_price,
+                "trade_id": trade_id,
+            }
+
+        except Exception as e:
+            print(f"[ORDER ERROR] {e}")
+            return {"status": "error", "pair": pair, "error": str(e)}
+
+    def close_all_positions(self):
+        """Emergency close — shuts every open position immediately."""
+        positions = self.client.get_open_positions()
+        results = []
+        for pos in positions:
+            pair = pos["instrument"]
+            try:
+                resp = self.client.close_position(pair)
+                print(f"[CLOSED] {pair}")
+                results.append({"pair": pair, "status": "closed"})
+            except Exception as e:
+                print(f"[CLOSE ERROR] {pair}: {e}")
+                results.append({"pair": pair, "status": "error", "error": str(e)})
+        return results
+
+    def snapshot_account(self):
+        """Save current account state to DB for dashboard history."""
+        state = self.risk.get_account_state()
+        save_snapshot(
+            balance=state["balance"],
+            nav=state["nav"],
+            open_pnl=state["open_pnl"]
+        )
+        return state
