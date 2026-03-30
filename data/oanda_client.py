@@ -7,6 +7,7 @@ import oandapyV20.endpoints.accounts as accounts
 import oandapyV20.endpoints.orders as orders_ep
 import oandapyV20.endpoints.positions as positions
 import oandapyV20.endpoints.pricing as pricing
+import oandapyV20.endpoints.trades as trades_ep
 from config import OANDA_API_KEY, OANDA_ACCOUNT_ID, OANDA_ENVIRONMENT
 
 
@@ -82,6 +83,30 @@ class OandaClient:
         r = orders_ep.OrderCreate(accountID=self.account_id, data={"order": order})
         self.client.request(r)
         return r.response
+
+    def get_closed_trades(self, count=50):
+        """
+        Fetch the most recent closed trades from OANDA.
+        Returns a list of dicts with: instrument, realizedPL, price (close), openTime, closeTime, id.
+        """
+        params = {"state": "CLOSED", "count": count}
+        r = trades_ep.TradesList(accountID=self.account_id, params=params)
+        self.client.request(r)
+        raw = r.response.get("trades", [])
+        result = []
+        for t in raw:
+            close_tx = t.get("closingTransactionIDs", [])
+            result.append({
+                "oanda_trade_id": t.get("id"),
+                "instrument":     t.get("instrument"),
+                "open_price":     float(t.get("price", 0)),
+                "close_price":    float(t.get("averageClosePrice", 0)) or None,
+                "pnl":            float(t.get("realizedPL", 0)),
+                "units":          abs(int(t.get("initialUnits", 0))),
+                "open_time":      t.get("openTime", ""),
+                "close_time":     t.get("closeTime", ""),
+            })
+        return result
 
     def close_position(self, pair):
         """Close all units of an open position, detecting which side is open."""

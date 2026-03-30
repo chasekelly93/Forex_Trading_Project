@@ -1,4 +1,5 @@
 oandapyV20==0.7.2
+psycopg2-binary>=2.9.0
 anthropic>=0.25.0
 pandas>=2.0.0
 numpy>=1.24.0
@@ -8,3 +9,4 @@ flask>=3.0.0
 python-telegram-bot>=20.0
 ta>=0.11.0
 schedule>=1.2.0
+APScheduler==3.11.2

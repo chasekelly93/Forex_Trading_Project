@@ -88,20 +88,15 @@ def score_candle(df, adx_threshold=25):
         # Ranging regime — only use RSI + Stochastic
         factors.append(f"ranging market (ADX {adx:.1f} < 25) — trend indicators ignored")
 
-    # RSI + Stochastic weighted together as ONE signal (±0.20)
-    rsi_bull   = rsi <= 35
-    rsi_bear   = rsi >= 65
-    stoch_bull = stoch_k < 25 and stoch_d < 25
-    stoch_bear = stoch_k > 75 and stoch_d > 75
-
-    if rsi_bull and stoch_bull:
-        score += 0.20; factors.append(f"RSI+Stoch oversold ({rsi:.0f}/{stoch_k:.0f})")
-    elif rsi_bear and stoch_bear:
-        score -= 0.20; factors.append(f"RSI+Stoch overbought ({rsi:.0f}/{stoch_k:.0f})")
-    elif rsi_bull or stoch_bull:
-        score += 0.10; factors.append(f"partial oversold signal (RSI {rsi:.0f}, Stoch {stoch_k:.0f})")
-    elif rsi_bear or stoch_bear:
-        score -= 0.10; factors.append(f"partial overbought signal (RSI {rsi:.0f}, Stoch {stoch_k:.0f})")
+    # RSI signal (±0.20)
+    if rsi <= 35:
+        score += 0.20; factors.append(f"RSI oversold ({rsi:.0f})")
+    elif rsi >= 65:
+        score -= 0.20; factors.append(f"RSI overbought ({rsi:.0f})")
+    elif rsi <= 45:
+        score += 0.10; factors.append(f"RSI mildly oversold ({rsi:.0f})")
+    elif rsi >= 55:
+        score -= 0.10; factors.append(f"RSI mildly overbought ({rsi:.0f})")
 
     # Support/Resistance proximity (±0.10)
     support    = last["support"]
@@ -111,6 +106,104 @@ def score_candle(df, adx_threshold=25):
         score += 0.10; factors.append(f"near support ({support:.5f})")
     if resistance and abs(close - resistance) / close < 0.003:
         score -= 0.10; factors.append(f"near resistance ({resistance:.5f})")
+
+    # ── Pivot point proximity (±0.08) ──────────────────────────────────────
+    try:
+        pivot = last.get("pivot")
+        r1    = last.get("r1")
+        r2    = last.get("r2")
+        s1    = last.get("s1")
+        s2    = last.get("s2")
+
+        def _near(level):
+            return level is not None and not (isinstance(level, float) and level != level) \
+                   and abs(close - level) / close < 0.003
+
+        if _near(s1) or _near(s2):
+            score += 0.08; factors.append("near pivot support (S1/S2)")
+        if _near(r1) or _near(r2):
+            score -= 0.08; factors.append("near pivot resistance (R1/R2)")
+        if _near(pivot) and not _near(s1) and not _near(s2) and not _near(r1) and not _near(r2):
+            factors.append("at pivot point")
+    except Exception:
+        pivot = r1 = r2 = s1 = s2 = None
+
+    # ── Round number proximity (±0.06) ──────────────────────────────────────
+    try:
+        near_round = last.get("near_round_number", False)
+        dist_pips  = last.get("round_number_distance_pips", 0) or 0
+        if near_round:
+            bump = 0.06 if score > 0 else -0.06
+            score += bump
+            factors.append(f"near round number ({dist_pips:.1f} pips away)")
+    except Exception:
+        near_round = False
+        dist_pips  = 0.0
+
+    # ── Market structure alignment (±0.10) ──────────────────────────────────
+    try:
+        mkt_structure = last.get("market_structure", "ranging")
+        if mkt_structure == "uptrend" and score > 0:
+            score += 0.10; factors.append("market structure: uptrend confirms")
+        elif mkt_structure == "downtrend" and score < 0:
+            score += 0.10; factors.append("market structure: downtrend confirms")
+        elif mkt_structure == "uptrend" and score < 0:
+            score *= 0.8; factors.append("market structure conflict")
+        elif mkt_structure == "downtrend" and score > 0:
+            score *= 0.8; factors.append("market structure conflict")
+    except Exception:
+        mkt_structure = "ranging"
+
+    # ── Candlestick patterns (±0.12) ────────────────────────────────────────
+    try:
+        pin_bull     = bool(last.get("pattern_pin_bull", False))
+        pin_bear     = bool(last.get("pattern_pin_bear", False))
+        engulf_bull  = bool(last.get("pattern_engulf_bull", False))
+        engulf_bear  = bool(last.get("pattern_engulf_bear", False))
+
+        if pin_bull:
+            score += 0.12; factors.append("bullish pin bar")
+        if pin_bear:
+            score -= 0.12; factors.append("bearish pin bar")
+        if engulf_bull:
+            score += 0.12; factors.append("bullish engulfing")
+        if engulf_bear:
+            score -= 0.12; factors.append("bearish engulfing")
+    except Exception:
+        pin_bull = pin_bear = engulf_bull = engulf_bear = False
+
+    # ── Bollinger Band position (±0.10) ────────────────────────────────────────
+    try:
+        bb_pct_b  = last.get("bb_pct_b", 0.5)
+        bb_upper  = last.get("bb_upper")
+        bb_lower  = last.get("bb_lower")
+        bb_mid    = last.get("bb_mid")
+
+        if bb_pct_b is not None and bb_pct_b == bb_pct_b:  # NaN check
+            if bb_pct_b <= 0.05:
+                score += 0.10; factors.append(f"below BB lower band (%B={bb_pct_b:.2f}) — oversold extension")
+            elif bb_pct_b >= 0.95:
+                score -= 0.10; factors.append(f"above BB upper band (%B={bb_pct_b:.2f}) — overbought extension")
+            elif bb_pct_b <= 0.20 and score > 0:
+                score += 0.05; factors.append(f"near BB lower band (%B={bb_pct_b:.2f})")
+            elif bb_pct_b >= 0.80 and score < 0:
+                score -= 0.05; factors.append(f"near BB upper band (%B={bb_pct_b:.2f})")
+    except Exception:
+        bb_pct_b = bb_upper = bb_lower = bb_mid = None
+
+    # Tick volume multiplier — high volume confirms signal, low volume dampens it
+    try:
+        vol_ratio = last.get("volume_ratio", 1.0)
+        if vol_ratio is None or vol_ratio != vol_ratio:  # NaN check
+            vol_ratio = 1.0
+        if vol_ratio >= 2.0:
+            score *= 1.15; factors.append(f"High volume confirmation ({vol_ratio:.1f}× avg)")
+        elif vol_ratio >= 1.5:
+            score *= 1.07; factors.append(f"Above-average volume ({vol_ratio:.1f}× avg)")
+        elif vol_ratio <= 0.5:
+            score *= 0.75; factors.append(f"Low volume — signal dampened ({vol_ratio:.1f}× avg)")
+    except Exception:
+        pass
 
     score = round(max(-1.0, min(1.0, score)), 3)
 
@@ -129,6 +222,22 @@ def score_candle(df, adx_threshold=25):
         "support":    round(support, 5) if support else None,
         "resistance": round(resistance, 5) if resistance else None,
         "atr":        round(last["atr"], 5),
+        "pivot":      round(pivot, 5) if pivot and pivot == pivot else None,
+        "r1":         round(r1, 5)    if r1    and r1    == r1    else None,
+        "r2":         round(r2, 5)    if r2    and r2    == r2    else None,
+        "s1":         round(s1, 5)    if s1    and s1    == s1    else None,
+        "s2":         round(s2, 5)    if s2    and s2    == s2    else None,
+        "near_round_number":      near_round,
+        "market_structure":       mkt_structure,
+        "pattern_pin_bull":       pin_bull,
+        "pattern_pin_bear":       pin_bear,
+        "pattern_engulf_bull":    engulf_bull,
+        "pattern_engulf_bear":    engulf_bear,
+        "volume_ratio":           round(float(last.get("volume_ratio") or 1.0), 2),
+        "bb_upper":   round(bb_upper, 5) if bb_upper and bb_upper == bb_upper else None,
+        "bb_lower":   round(bb_lower, 5) if bb_lower and bb_lower == bb_lower else None,
+        "bb_mid":     round(bb_mid, 5)   if bb_mid   and bb_mid   == bb_mid   else None,
+        "bb_pct_b":   round(float(bb_pct_b), 3) if bb_pct_b is not None and bb_pct_b == bb_pct_b else None,
         "factors":    factors,
     }
 

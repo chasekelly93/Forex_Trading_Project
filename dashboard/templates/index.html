@@ -80,6 +80,55 @@
     .btn-test { background: transparent; border: 1px solid #f59e0b; color: #f59e0b; font-size: 12px; padding: 6px 12px; }
     .btn-test.active { background: #f59e0b; color: #000; font-weight: 600; }
 
+    /* Settings panel */
+    .btn-settings { background: transparent; border: 1px solid #334155; color: #94a3b8; font-size: 13px; padding: 8px 14px; display:flex; align-items:center; gap:6px; }
+    .btn-settings:hover { border-color:#7c6af7; color:#c4b5fd; }
+
+    #settings-panel {
+      display: none;
+      position: fixed;
+      top: 0; right: 0;
+      width: 420px;
+      height: 100vh;
+      background: #1a1d27;
+      border-left: 1px solid #2d3148;
+      z-index: 1000;
+      overflow-y: auto;
+      box-shadow: -8px 0 32px rgba(0,0,0,0.5);
+    }
+    #settings-panel.open { display: block; }
+    .settings-overlay {
+      display: none;
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.4);
+      z-index: 999;
+    }
+    .settings-overlay.open { display: block; }
+    .settings-section {
+      padding: 20px 24px;
+      border-bottom: 1px solid #2d3148;
+    }
+    .settings-section:last-child { border-bottom: none; }
+    .settings-section h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: #64748b; margin-bottom: 14px; }
+
+    /* Onboarding */
+    .onboarding-step {
+      display: flex; gap: 14px; align-items: flex-start;
+      padding: 12px 0; border-bottom: 1px solid #1e293b;
+    }
+    .onboarding-step:last-child { border-bottom: none; }
+    .step-num {
+      width: 26px; height: 26px; border-radius: 50%;
+      background: #2d3148; color: #7c6af7;
+      font-size: 12px; font-weight: 700;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0; margin-top: 1px;
+    }
+    .step-num.done { background: #14532d; color: #22c55e; }
+    .step-body { flex: 1; }
+    .step-title { font-size: 13px; font-weight: 600; color: #e2e8f0; margin-bottom: 3px; }
+    .step-desc { font-size: 12px; color: #64748b; line-height: 1.5; }
+
     /* Test mode banner */
     #test-banner {
       background: repeating-linear-gradient(
@@ -377,6 +426,12 @@
     .tip.tip-right::after { left: 0; right: auto; transform: none; }
     .tip.tip-right::before { left: 12px; right: auto; transform: none; }
 
+    /* Auto-applied by JS when overflow is detected */
+    .tip.tip-auto-right::after { left: 0 !important; right: auto !important; transform: none !important; }
+    .tip.tip-auto-right::before { left: 12px !important; right: auto !important; transform: none !important; }
+    .tip.tip-auto-left::after { left: auto !important; right: 0 !important; transform: none !important; }
+    .tip.tip-auto-left::before { left: auto !important; right: 12px !important; transform: none !important; }
+
     /* Underline hint that something is hoverable */
     body.tooltips-on .tip { border-bottom: 1px dashed #3d4468; }
     body.tooltips-on th .tip, body.tooltips-on .btn.tip { border-bottom: none; }
@@ -473,20 +528,131 @@
       </button>
     {% endif %}
     <button class="btn btn-danger tip" onclick="confirmCloseAll()"
-      data-tip="Immediately close every open position at market price. Use in emergencies or to manually exit all trades.">
-      Close All Positions
+      data-tip="Immediately close every open position at market price. Use in emergencies.">
+      Close All
     </button>
-    <button id="tooltip-toggle" class="btn btn-tooltip-toggle active" onclick="toggleTooltips()"
-      data-tip="">
-      ? Tooltips ON
-    </button>
-    <button id="test-btn" class="btn btn-test {% if test_mode %}active{% endif %}"
-      onclick="toggleTestMode()"
-      data-tip="">
-      🧪 Test Mode {% if test_mode %}ON{% else %}OFF{% endif %}
-    </button>
+    <button class="btn btn-settings" onclick="openSettings()">⚙ Settings</button>
+    <span id="sync-indicator" style="font-size:11px; color:#475569; display:none;">
+      &#8635; Synced <span id="sync-time"></span>
+      <span id="sync-badge" style="display:none; background:#166534; color:#bbf7d0; font-size:10px; font-weight:700; padding:1px 6px; border-radius:4px; margin-left:4px;"></span>
+    </span>
   </div>
 </header>
+
+<!-- Settings overlay + panel -->
+<div class="settings-overlay" id="settings-overlay" onclick="closeSettings()"></div>
+<div id="settings-panel">
+
+  <!-- Header -->
+  <div style="display:flex;align-items:center;justify-content:space-between;padding:20px 24px;border-bottom:1px solid #2d3148;">
+    <div style="font-size:16px;font-weight:600;">Settings</div>
+    <button onclick="closeSettings()" style="background:none;border:none;color:#64748b;font-size:20px;cursor:pointer;line-height:1;">×</button>
+  </div>
+
+  <!-- Auto-cycle -->
+  <div class="settings-section">
+    <h3>Auto-Cycle Scheduler</h3>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:#e2e8f0;">
+        <input type="checkbox" id="scheduler-toggle" onchange="toggleScheduler(this.checked)" style="width:16px;height:16px;accent-color:#7c6af7;">
+        Enable auto-cycle
+      </label>
+      <span id="next-run-label" style="font-size:12px;color:#7c6af7;display:inline-block;width:72px;text-align:right;font-variant-numeric:tabular-nums;">—</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;">
+      <span style="font-size:12px;color:#64748b;">Interval</span>
+      <select id="scheduler-interval" onchange="setSchedulerInterval(this.value)" style="background:#0f172a;color:#e2e8f0;border:1px solid #334155;border-radius:6px;padding:4px 8px;font-size:13px;flex:1;">
+        <option value="15">Every 15 minutes</option>
+        <option value="30" selected>Every 30 minutes</option>
+        <option value="60">Every hour</option>
+        <option value="120">Every 2 hours</option>
+        <option value="240">Every 4 hours</option>
+      </select>
+    </div>
+    <div style="margin-top:10px;font-size:11px;color:#475569;line-height:1.5;">Automatically runs a full analysis cycle at the selected interval. Respects Pause — no orders fire while paused.</div>
+  </div>
+
+  <!-- Utilities -->
+  <div class="settings-section">
+    <h3>Tools</h3>
+    <div style="display:flex;flex-direction:column;gap:8px;">
+      <button class="btn" style="background:#1e293b;color:#94a3b8;border:1px solid #334155;text-align:left;justify-content:flex-start;" onclick="syncTrades(this);closeSettings();">&#8635; Sync P&L — Reconcile trades closed by SL/TP</button>
+      <button id="tooltip-toggle" class="btn btn-tooltip-toggle active" onclick="toggleTooltips()" style="text-align:left;">? Tooltips ON</button>
+      <button id="test-btn" class="btn btn-test {% if test_mode %}active{% endif %}" onclick="toggleTestMode()" style="text-align:left;">🧪 Test Mode {% if test_mode %}ON{% else %}OFF{% endif %}</button>
+    </div>
+  </div>
+
+  <!-- Onboarding -->
+  <div class="settings-section">
+    <h3>Getting Started</h3>
+
+    <div class="onboarding-step">
+      <div class="step-num done">✓</div>
+      <div class="step-body">
+        <div class="step-title">Connect your OANDA account</div>
+        <div class="step-desc">Click your account name in the top-left header. Enter your OANDA Account ID and API key. The agent validates against OANDA before switching.</div>
+      </div>
+    </div>
+
+    <div class="onboarding-step">
+      <div class="step-num">2</div>
+      <div class="step-body">
+        <div class="step-title">Run your first analysis in Test Mode</div>
+        <div class="step-desc">Enable Test Mode below. It bypasses peak-hour restrictions and uses paper money — safe to run anytime. Click <strong>▶ Run Analysis</strong> in the header to trigger your first cycle across all pairs.</div>
+      </div>
+    </div>
+
+    <div class="onboarding-step">
+      <div class="step-num">3</div>
+      <div class="step-body">
+        <div class="step-title">Understand the signal pipeline</div>
+        <div class="step-desc">Python calculates a <em>confluence score</em> for each pair using RSI, ADX, EMA crossovers, and Bollinger Bands across 3 timeframes. Only pairs scoring above the threshold are sent to Claude. Claude then adds fundamental and sentiment analysis before deciding BUY / SELL / NO_TRADE.</div>
+      </div>
+    </div>
+
+    <div class="onboarding-step">
+      <div class="step-num">4</div>
+      <div class="step-body">
+        <div class="step-title">Review open positions and trade history</div>
+        <div class="step-desc">Open positions appear in the <strong>Live Positions</strong> table with direction, units, and a close button. Closed trades log to <strong>Trade History</strong> with entry price, SL, TP, and realized P&L.</div>
+      </div>
+    </div>
+
+    <div class="onboarding-step">
+      <div class="step-num">5</div>
+      <div class="step-body">
+        <div class="step-title">Tune Test Mode parameters</div>
+        <div class="step-desc">The yellow banner opens the parameter panel. Adjust confluence threshold, ADX sensitivity, risk per trade, and R:R ratio. Lower thresholds = more trades. Use <strong>Increase Risk</strong> preset to stress-test the pipeline.</div>
+      </div>
+    </div>
+
+    <div class="onboarding-step">
+      <div class="step-num">6</div>
+      <div class="step-body">
+        <div class="step-title">Enable auto-cycling</div>
+        <div class="step-desc">Once you're comfortable, enable the <strong>Auto-Cycle Scheduler</strong> above. It fires automatically at your chosen interval. Enable <strong>Sync P&L</strong> regularly to reconcile trades closed by Stop Loss or Take Profit while you weren't watching.</div>
+      </div>
+    </div>
+
+    <div class="onboarding-step">
+      <div class="step-num">7</div>
+      <div class="step-body">
+        <div class="step-title">Go live</div>
+        <div class="step-desc">Turn off Test Mode. The agent will now execute real orders during London/NY overlap (13:00–17:00 UTC, Mon–Fri). Use <strong>Pause Agent</strong> to halt execution without stopping analysis. <strong>Close All</strong> is your emergency exit.</div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Account -->
+  <div class="settings-section">
+    <h3>Account</h3>
+    {% if session.user_name %}
+    <div style="font-size:13px;color:#94a3b8;margin-bottom:12px;">Signed in as <strong style="color:#e2e8f0;">{{ session.user_name }}</strong></div>
+    {% endif %}
+    <a href="/logout" style="display:block;width:100%;padding:10px 14px;background:#1e293b;border:1px solid #334155;border-radius:8px;color:#f87171;font-size:13px;font-weight:600;text-align:center;text-decoration:none;transition:border-color 0.15s;" onmouseover="this.style.borderColor='#f87171'" onmouseout="this.style.borderColor='#334155'">Sign out</a>
+  </div>
+</div>
 
 {% if test_mode %}
 <div id="test-banner" onclick="toggleTestPanel()" style="cursor:pointer; user-select:none;">
@@ -500,21 +666,30 @@
 
 {% if test_mode %}
 <div id="test-panel">
-  <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px;">
-    <h3 style="margin-bottom:0;">🧪 Test Mode Parameters — changes apply on next Run Analysis</h3>
+
+  <!-- Presets row -->
+  <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:20px; flex-wrap:wrap; gap:10px;">
+    <h3 style="margin-bottom:0;">🧪 Test Mode Parameters</h3>
     <div style="display:flex; gap:8px;">
-      <button class="btn tip" onclick="resetTestDefaults()"
-        style="background:#1a1d27; border:1px solid #2d3148; color:#94a3b8; font-size:12px; padding:6px 14px;"
-        data-tip="Reset all sliders and toggles back to their default test mode values. Does not turn off Test Mode.">
-        ↺ Reset to Defaults
+      <button class="btn tip" onclick="applyPreset('conservative')"
+        style="background:#0f2820; border:1px solid #22c55e66; color:#22c55e; font-size:12px; padding:6px 14px;"
+        data-tip="Low risk. Strict filters. Fewer trades but higher quality signals — good for getting familiar with the pipeline without overtrading.">
+        🟢 Conservative
       </button>
-      <button class="btn tip" onclick="applyHighRiskPreset()"
+      <button class="btn tip" onclick="applyPreset('balanced')"
+        style="background:#1a1d27; border:1px solid #7c6af7; color:#7c6af7; font-size:12px; padding:6px 14px;"
+        data-tip="Balanced risk and signal sensitivity. This mirrors the production defaults — a good baseline for testing real-world behavior.">
+        🟣 Balanced
+      </button>
+      <button class="btn tip" onclick="applyPreset('aggressive')"
         style="background:#1a0a0a; border:1px solid #ef444488; color:#ef4444; font-size:12px; padding:6px 14px;"
-        data-tip="Sets all parameters to maximise the chance of a trade firing: lower confidence thresholds, relaxed MTF rules, H1 confirmation disabled, higher position limit. Use to verify the pipeline is working — not a real trading strategy.">
-        ⚡ Increase Risk
+        data-tip="High risk. Relaxed filters. Maximises trade frequency — use this to stress-test the pipeline or verify execution is working. Not a real trading strategy.">
+        🔴 Aggressive
       </button>
     </div>
   </div>
+
+  <!-- Core params -->
   <div class="test-params">
 
     <div class="test-param">
@@ -536,7 +711,7 @@
 
     <div class="test-param">
       <label>
-        <span class="tip" data-tip="The minimum confidence score Claude must assign before a trade is executed. Lower = more trades fire (including weaker signals). Higher = fewer but higher-quality trades. Production default is 60%.">Min Confidence Threshold</span>
+        <span class="tip" data-tip="The minimum confidence score Claude must assign before a trade is executed. Lower = more trades fire (including weaker signals). Higher = fewer but higher-quality trades. Production default is 60%.">Min Confidence</span>
       </label>
       <div class="param-value" id="val-confidence">{{ (test_params.confidence_min * 100) | int }}%</div>
       <input type="range" min="30" max="95" step="5"
@@ -547,7 +722,7 @@
 
     <div class="test-param">
       <label>
-        <span class="tip" data-tip="What percentage of your account balance to risk on each individual trade. This directly controls position size — higher % = larger positions = bigger wins AND bigger losses. 1% is considered conservative. Never exceed 2% in live trading.">Risk Per Trade (%)</span>
+        <span class="tip" data-tip="What percentage of your account balance to risk on each individual trade. This directly controls position size — higher % = larger positions = bigger wins AND bigger losses. 1% is considered conservative. Never exceed 2% in live trading.">Risk Per Trade</span>
       </label>
       <div class="param-value" id="val-risk">{{ test_params.max_risk_pct }}%</div>
       <input type="range" min="0.25" max="5" step="0.25"
@@ -558,7 +733,7 @@
 
     <div class="test-param">
       <label>
-        <span class="tip" data-tip="Maximum number of trades that can be open simultaneously. Increasing this lets the agent spread across more pairs at once but also multiplies your total risk exposure. Keep this low when testing a new strategy.">Max Open Positions</span>
+        <span class="tip" data-tip="Maximum number of trades that can be open simultaneously. Increasing this lets the agent spread across more pairs at once but also multiplies your total risk exposure.">Max Open Positions</span>
       </label>
       <div class="param-value" id="val-positions">{{ test_params.max_positions }}</div>
       <input type="range" min="1" max="7" step="1"
@@ -569,7 +744,7 @@
 
     <div class="test-param">
       <label>
-        <span class="tip" data-tip="The daily loss kill switch. If your account drops by this percentage from the day's starting balance, the agent stops placing any new trades for the rest of the day. Protects against a bad run spiraling out of control.">Daily Loss Kill Switch (%)</span>
+        <span class="tip" data-tip="The daily loss kill switch. If your account drops by this percentage from the day's starting balance, the agent stops placing any new trades for the rest of the day.">Daily Loss Limit</span>
       </label>
       <div class="param-value" id="val-drawdown">{{ test_params.max_daily_loss_pct }}%</div>
       <input type="range" min="1" max="10" step="0.5"
@@ -580,7 +755,7 @@
 
     <div class="test-param">
       <label>
-        <span class="tip" data-tip="Stop loss distance in pips. This controls BOTH position sizing AND the actual stop-loss order placed on OANDA. For most pairs, 1 pip = 0.0001. For USD/JPY, 1 pip = 0.01. Wider stop = smaller position size for the same risk %.">Stop Loss Distance (pips)</span>
+        <span class="tip" data-tip="Stop loss distance in pips. Controls both position sizing and the actual stop-loss order on OANDA. Wider stop = smaller position for the same risk %.">Stop Loss (pips)</span>
       </label>
       <div class="param-value" id="val-pips">{{ test_params.stop_pips }} pips</div>
       <input type="range" min="5" max="100" step="5"
@@ -591,7 +766,7 @@
 
     <div class="test-param">
       <label>
-        <span class="tip" data-tip="Risk:Reward ratio. The take-profit is set at this multiple of the stop-loss distance. 2.0 = for every pip you risk, you target 2 pips profit. Higher R:R means fewer trades hit TP but each win is larger. 2.0 is the standard minimum for positive expectancy.">Risk : Reward Ratio</span>
+        <span class="tip" data-tip="Risk:Reward ratio. The take-profit is set at this multiple of the stop-loss distance. 2.0 = target 2 pips profit for every 1 pip risked. 2.0 is the standard minimum for positive expectancy.">Risk : Reward</span>
       </label>
       <div class="param-value" id="val-rr">1 : {{ test_params.take_profit_ratio }}</div>
       <input type="range" min="1.0" max="4.0" step="0.5"
@@ -602,7 +777,7 @@
 
     <div class="test-param">
       <label>
-        <span class="tip" data-tip="When ON, the stop loss follows the price as it moves in your favour, maintaining a fixed distance. If price reverses by the trailing distance, the trade closes — locking in whatever profit had accumulated. The fixed stop loss is replaced by the trailing stop. Take-profit still applies.">Trailing Stop Loss</span>
+        <span class="tip" data-tip="When ON, the stop loss follows price as it moves in your favour. If price reverses by the trailing distance, the trade closes — locking in profit. Replaces the fixed stop loss.">Trailing Stop Loss</span>
       </label>
       <div class="test-toggle-row">
         <label class="switch">
@@ -619,7 +794,7 @@
 
     <div class="test-param">
       <label>
-        <span class="tip" data-tip="How far the trailing stop sits from the current best price. Wider = more room for normal pullbacks before closing. Tighter = locks in profit faster but gets stopped out on minor retracements. For H4 swing trades, 1.5–2× your stop loss distance is a reasonable starting point.">Trailing Distance (pips)</span>
+        <span class="tip" data-tip="How far the trailing stop sits from the current best price. Wider = more room for pullbacks. Tighter = locks in profit faster but can exit on minor retracements.">Trailing Distance (pips)</span>
       </label>
       <div class="param-value" id="val-trailing">{{ test_params.trailing_stop_pips }} pips</div>
       <input type="range" min="10" max="100" step="5"
@@ -630,60 +805,73 @@
 
   </div>
 
-  <h3 style="margin-top:20px;">🔬 Analysis Thresholds — affect what signals reach Claude</h3>
-  <div class="test-params">
-
-    <div class="test-param">
-      <label>
-        <span class="tip tip-right" data-tip="The minimum technical confluence score (from -1.0 to +1.0) required for the system to suggest BUY or SELL to Claude. Lower = more setups get passed to Claude for analysis. At 0.3, even weak signals are forwarded. At 0.8, only very strong multi-indicator alignment gets through. Production default is 0.60.">Confluence Score Min</span>
-      </label>
-      <div class="param-value" id="val-confluence">{{ (test_params.confluence_min * 100) | int }}%</div>
-      <input type="range" min="20" max="85" step="5"
-        value="{{ (test_params.confluence_min * 100) | int }}"
-        oninput="updateParamSlider('confluence_min', this.value/100, 'val-confluence', v => Math.round(v*100)+'%')">
-      <div class="param-hint">Production default: 60% · Range: 20–85%</div>
-    </div>
-
-    <div class="test-param">
-      <label>
-        <span class="tip" data-tip="ADX (Average Directional Index) measures trend strength. When ADX is above this threshold, the market is considered 'trending' — EMA stacks, MACD, and ADX directional signals are all used (max score ±0.70). Below this, only RSI and Stochastic apply (max score ±0.20). Lowering this threshold unlocks trend signals in more markets.">ADX Trending Threshold</span>
-      </label>
-      <div class="param-value" id="val-adx">{{ test_params.adx_threshold }}</div>
-      <input type="range" min="15" max="35" step="1"
-        value="{{ test_params.adx_threshold }}"
-        oninput="updateParamSlider('adx_threshold', parseInt(this.value), 'val-adx', v => v)">
-      <div class="param-hint">Production default: 25 · Range: 15–35</div>
-    </div>
-
-    <div class="test-param">
-      <label>
-        <span class="tip" data-tip="How decisive the Daily timeframe trend must be before it can veto a conflicting H4 setup. At 0.30 (default), a Daily score of 0.30+ (moderate bullish) blocks any H4 bearish signal. Lower this to 0.10 and the Daily must be much more strongly trending before it overrides H4 — allowing more counter-trend setups through. Higher = stricter MTF filter.">MTF Daily Bias Min</span>
-      </label>
-      <div class="param-value" id="val-mtf">{{ (test_params.mtf_daily_threshold * 100) | int }}%</div>
-      <input type="range" min="10" max="60" step="5"
-        value="{{ (test_params.mtf_daily_threshold * 100) | int }}"
-        oninput="updateParamSlider('mtf_daily_threshold', this.value/100, 'val-mtf', v => Math.round(v*100)+'%')">
-      <div class="param-hint">Production default: 30% · Range: 10–60%</div>
-    </div>
-
-    <div class="test-param">
-      <label>
-        <span class="tip" data-tip="When ON, the H4 confluence score is reduced by 30% if the H1 (1-hour) timeframe doesn't agree with the direction. This acts as a timing filter — it ensures you're not entering a 4-hour setup when the short-term momentum is still against you. Turn OFF to fire H4 signals at full strength regardless of H1.">Require H1 Confirmation</span>
-      </label>
-      <div class="test-toggle-row">
-        <label class="switch">
-          <input type="checkbox" id="param-h1confirm" {% if test_params.require_h1_confirm %}checked{% endif %}
-            onchange="updateParam('require_h1_confirm', this.checked)">
-          <span class="slider-sw"></span>
-        </label>
-        <span id="param-h1confirm-label" style="font-size:13px; color:#f59e0b;">
-          {% if test_params.require_h1_confirm %}Required{% else %}Disabled{% endif %}
-        </span>
-      </div>
-      <div class="param-hint">Production default: ON (required)</div>
-    </div>
-
+  <!-- Advanced toggle -->
+  <div style="margin-top:20px;">
+    <button onclick="toggleAdvanced()" id="advanced-toggle-btn"
+      style="background:none; border:none; color:#475569; font-size:12px; cursor:pointer; display:flex; align-items:center; gap:6px; padding:0; letter-spacing:0.5px; text-transform:uppercase;">
+      <span id="advanced-chevron">▶</span> Advanced — Signal Engine Thresholds
+    </button>
   </div>
+
+  <div id="advanced-params" style="display:none; margin-top:12px;">
+    <div style="font-size:11px; color:#475569; margin-bottom:12px; line-height:1.5;">
+      These control the Python signal engine that runs <em>before</em> Claude is consulted. Most users won't need to change these — they affect how aggressively the technical analysis filters pairs before any AI analysis runs.
+    </div>
+    <div class="test-params">
+
+      <div class="test-param">
+        <label>
+          <span class="tip tip-right" data-tip="The minimum technical confluence score required to pass a pair to Claude for analysis. Lower = more pairs reach Claude (higher API cost, more potential trades). Higher = stricter pre-filter, fewer Claude calls.">Confluence Gate</span>
+        </label>
+        <div class="param-value" id="val-confluence">{{ (test_params.confluence_min * 100) | int }}%</div>
+        <input type="range" min="20" max="85" step="5"
+          value="{{ (test_params.confluence_min * 100) | int }}"
+          oninput="updateParamSlider('confluence_min', this.value/100, 'val-confluence', v => Math.round(v*100)+'%')">
+        <div class="param-hint">Production default: 60% · Range: 20–85%</div>
+      </div>
+
+      <div class="test-param">
+        <label>
+          <span class="tip" data-tip="ADX measures trend strength. Above this threshold = 'trending' market, full indicator suite active (EMA, MACD, ADX direction). Below = ranging market, only RSI and Stochastic apply. Lower this to unlock trend signals in more markets.">ADX Trend Threshold</span>
+        </label>
+        <div class="param-value" id="val-adx">{{ test_params.adx_threshold }}</div>
+        <input type="range" min="15" max="35" step="1"
+          value="{{ test_params.adx_threshold }}"
+          oninput="updateParamSlider('adx_threshold', parseInt(this.value), 'val-adx', v => v)">
+        <div class="param-hint">Production default: 25 · Range: 15–35</div>
+      </div>
+
+      <div class="test-param">
+        <label>
+          <span class="tip" data-tip="How strong the Daily timeframe bias must be to veto a conflicting H4 signal. Lower = Daily must be very decisive before it blocks an H4 trade — more counter-trend setups get through.">MTF Daily Bias Min</span>
+        </label>
+        <div class="param-value" id="val-mtf">{{ (test_params.mtf_daily_threshold * 100) | int }}%</div>
+        <input type="range" min="10" max="60" step="5"
+          value="{{ (test_params.mtf_daily_threshold * 100) | int }}"
+          oninput="updateParamSlider('mtf_daily_threshold', this.value/100, 'val-mtf', v => Math.round(v*100)+'%')">
+        <div class="param-hint">Production default: 30% · Range: 10–60%</div>
+      </div>
+
+      <div class="test-param">
+        <label>
+          <span class="tip" data-tip="When ON, H4 confluence score is reduced 30% if H1 disagrees with the direction — acts as a timing filter. Turn OFF to fire H4 signals at full strength regardless of short-term momentum.">Require H1 Confirmation</span>
+        </label>
+        <div class="test-toggle-row">
+          <label class="switch">
+            <input type="checkbox" id="param-h1confirm" {% if test_params.require_h1_confirm %}checked{% endif %}
+              onchange="updateParam('require_h1_confirm', this.checked)">
+            <span class="slider-sw"></span>
+          </label>
+          <span id="param-h1confirm-label" style="font-size:13px; color:#f59e0b;">
+            {% if test_params.require_h1_confirm %}Required{% else %}Disabled{% endif %}
+          </span>
+        </div>
+        <div class="param-hint">Production default: ON (required)</div>
+      </div>
+
+    </div>
+  </div>
+
 </div>
 {% endif %}
 
@@ -706,9 +894,8 @@
         </div>
         <div style="width:1px; height:40px; background:#2d3148;"></div>
         <div>
-          <div style="font-size:11px; text-transform:uppercase; letter-spacing:1px; color:#64748b; margin-bottom:4px; display:flex; align-items:center; gap:6px;">
-            Market Session
-            <span class="tip" data-tip="The London/New York overlap (13:00–17:00 UTC) is peak trading time — highest volume, tightest spreads, most reliable signals. Outside this window, markets are thinner and more prone to false moves. The agent only executes trades during this window.">?</span>
+          <div style="font-size:11px; text-transform:uppercase; letter-spacing:1px; color:#64748b; margin-bottom:4px;">
+            <span class="tip" data-tip="The London/New York overlap (13:00–17:00 UTC) is peak trading time — highest volume, tightest spreads, most reliable signals. Outside this window, markets are thinner and more prone to false moves. The agent only executes trades during this window.">Market Session</span>
           </div>
           <div id="session-status" style="font-size:16px; font-weight:600;">—</div>
           <div id="session-detail" style="font-size:11px; color:#64748b; margin-top:2px;">—</div>
@@ -811,12 +998,28 @@
         All accounts: {{ pnl_summary_all.win_rate }}% / {{ pnl_summary_all.closed_count }} trades
       </div>
     </div>
+    <div class="card">
+      <label class="tip" data-tip="Total pips gained or lost across all closed trades on this account. Unlike dollar P&L, pip count is independent of position size — it measures pure signal quality. Positive = entries and exits were directionally correct on average.">
+        Total Pips <span style="font-size:10px; color:#4b5563;">(live trades)</span>
+      </label>
+      <div class="value {% if pip_summary.live_pips >= 0 %}positive{% else %}negative{% endif %}">
+        {% if pip_summary.live_pips >= 0 %}+{% endif %}{{ pip_summary.live_pips }} <span style="font-size:13px; color:#64748b; font-weight:400;">pips</span>
+      </div>
+      <div class="param-hint" style="margin-top:6px;">
+        All accounts: <span class="{% if pip_summary_all.live_pips >= 0 %}positive{% else %}negative{% endif %}">{% if pip_summary_all.live_pips >= 0 %}+{% endif %}{{ pip_summary_all.live_pips }}</span>
+        &nbsp;|&nbsp; Test: <span class="{% if pip_summary.test_pips >= 0 %}positive{% else %}negative{% endif %}">{% if pip_summary.test_pips >= 0 %}+{% endif %}{{ pip_summary.test_pips }}</span>
+      </div>
+    </div>
   </div>
 
+  <!-- Claude Feedback Loop -->
   <!-- Analysis Log -->
   <div id="cycle-panel" style="display:none; margin-bottom:24px;">
     <div class="card">
-      <label>Analysis Running...</label>
+      <label style="display:flex; align-items:center; gap:10px;">
+        <span id="cycle-panel-label">Analysis Running...</span>
+        <span id="cycle-source-badge" style="display:none; font-size:10px; font-weight:700; letter-spacing:1px; text-transform:uppercase; background:#1e293b; border:1px solid #334155; color:#94a3b8; padding:2px 8px; border-radius:4px;"></span>
+      </label>
       <div id="cycle-log" style="font-size:13px; color:#94a3b8; line-height:2; margin-top:8px;"></div>
     </div>
   </div>
@@ -927,6 +1130,31 @@
       {% endif %}
     </div>
 
+  </div>
+
+  <!-- Claude Feedback Loop -->
+  <div id="feedback-card" class="card" style="margin-bottom:24px;">
+    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px;">
+      <label class="tip" data-tip="Claude analyses your closed trade history — win rate, P&L by pair, performance by hour — and suggests specific parameter adjustments. You review and approve each suggestion individually. Nothing changes automatically.">
+        🧠 Claude Feedback Loop
+      </label>
+      <div style="display:flex; align-items:center; gap:10px;">
+        <span id="feedback-last-run" style="font-size:11px; color:#475569;">Never run</span>
+        <button class="btn tip" id="feedback-run-btn" onclick="runFeedback()"
+          style="background:#1e1640; border:1px solid #7c6af7; color:#c4b5fd; font-size:12px; padding:6px 14px;"
+          data-tip="Sends your last 200 closed trades to Claude for analysis. Takes ~10 seconds. Requires at least 10 closed trades with P&L recorded.">
+          ▶ Analyse Performance
+        </button>
+      </div>
+    </div>
+    <div id="feedback-summary" style="font-size:13px; color:#64748b; margin-bottom:12px; display:none;"></div>
+    <div id="feedback-suggestions-wrap" style="display:none;">
+      <div style="font-size:11px; text-transform:uppercase; letter-spacing:1px; color:#64748b; margin-bottom:10px;">Pending Suggestions</div>
+      <div id="feedback-suggestions-list"></div>
+    </div>
+    <div id="feedback-empty" style="font-size:12px; color:#334155; display:none;">
+      No pending suggestions — run an analysis to generate recommendations.
+    </div>
   </div>
 
   <!-- Trade History -->
@@ -1059,20 +1287,137 @@
   }
 
   // ── Run Analysis ────────────────────────────────────────────────────────
-  function setRunning(on) {
-    const btn = document.getElementById("run-btn");
-    const tip = document.getElementById("run-tip");
+  function setRunning(on, source) {
+    const btn    = document.getElementById("run-btn");
+    const tip    = document.getElementById("run-tip");
+    const badge  = document.getElementById("cycle-source-badge");
+    const lbl    = document.getElementById("cycle-panel-label");
+    const isAuto = source === "auto";
     if (on) {
       btn.classList.add("running");
-      btn.innerHTML = "Analyzing...";
-      tip.setAttribute("data-tip", "Analysis in progress — Claude is reviewing all 7 pairs. Takes 60–90 seconds. The button resets automatically when done.");
+      btn.innerHTML = isAuto ? "⏱ Auto-running..." : "Analyzing...";
+      tip.setAttribute("data-tip", "Analysis in progress — Claude is reviewing all pairs. The button resets automatically when done.");
       document.getElementById("cycle-panel").style.display = "block";
+      if (isAuto) {
+        badge.style.display = "inline-block";
+        badge.textContent   = "⏱ Auto-triggered";
+        badge.style.borderColor = "#7c6af7";
+        badge.style.color       = "#7c6af7";
+        badge.style.background  = "#1e1640";
+        lbl.textContent = "Auto-Cycle Running...";
+      } else {
+        badge.style.display = "inline-block";
+        badge.textContent   = "Manual";
+        badge.style.borderColor = "#334155";
+        badge.style.color       = "#64748b";
+        badge.style.background  = "#1e293b";
+        lbl.textContent = "Analysis Running...";
+      }
     } else {
       btn.classList.remove("running");
       btn.innerHTML = "&#9654; Run Analysis";
       tip.setAttribute("data-tip", "Triggers a full analysis cycle across all 7 pairs: fetches live OANDA prices, calculates technical indicators, sends data to Claude for a trade thesis, then executes any signals that pass the risk checks.");
       document.getElementById("cycle-panel").style.display = "none";
+      badge.style.display = "none";
     }
+  }
+
+  // ── Scheduler ────────────────────────────────────────────────────────────
+  let _nextRunUtc = null;
+  let _schedulerCountdownTimer = null;
+
+  function toggleScheduler(enabled) {
+    const interval = parseInt(document.getElementById('scheduler-interval').value);
+    fetch("/api/scheduler", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ enabled, interval })
+    })
+    .then(r => r.json())
+    .then(d => {
+      _nextRunUtc = d.next_run ? new Date(d.next_run) : null;
+      updateNextRunLabel();
+      if (enabled) {
+        toast(`Auto-cycle enabled — every ${interval} min`, "#7c6af7");
+        startCountdown();
+      } else {
+        toast("Auto-cycle disabled", "#64748b");
+        clearInterval(_schedulerCountdownTimer);
+        document.getElementById('next-run-label').textContent = "—";
+      }
+    });
+  }
+
+  function setSchedulerInterval(val) {
+    // Just store the value — takes effect next toggle
+  }
+
+  function startCountdown() {
+    clearInterval(_schedulerCountdownTimer);
+    _schedulerCountdownTimer = setInterval(updateNextRunLabel, 1000);
+  }
+
+  function updateNextRunLabel() {
+    const el = document.getElementById('next-run-label');
+    if (!_nextRunUtc) { el.textContent = "—"; return; }
+    const secsLeft = Math.round((_nextRunUtc - Date.now()) / 1000);
+    if (secsLeft <= 0) { el.textContent = "Running…"; return; }
+    const m = Math.floor(secsLeft / 60);
+    const s = secsLeft % 60;
+    el.textContent = `Next: ${m}:${String(s).padStart(2,'0')}`;
+  }
+
+  // Sync scheduler state from /api/cycle-status poll
+  function applySchedulerState(d) {
+    const toggle = document.getElementById('scheduler-toggle');
+    const sel    = document.getElementById('scheduler-interval');
+    if (toggle) toggle.checked = d.scheduler_enabled;
+    if (sel && d.schedule_interval) sel.value = String(d.schedule_interval);
+    if (d.next_run_utc) {
+      _nextRunUtc = new Date(d.next_run_utc);
+      if (d.scheduler_enabled && !_schedulerCountdownTimer) startCountdown();
+    }
+    updateNextRunLabel();
+
+    // Update sync indicator
+    const syncEl   = document.getElementById('sync-indicator');
+    const syncTime = document.getElementById('sync-time');
+    const syncBadge = document.getElementById('sync-badge');
+    if (d.last_sync_utc && syncEl && syncTime) {
+      syncEl.style.display = 'inline';
+      syncTime.textContent = d.last_sync_utc;
+      if (d.last_sync_updated > 0) {
+        syncBadge.style.display = 'inline';
+        syncBadge.textContent = `+${d.last_sync_updated} updated`;
+      } else {
+        syncBadge.style.display = 'none';
+      }
+    }
+  }
+
+  // ── Settings panel ───────────────────────────────────────────────────────
+  function openSettings() {
+    document.getElementById('settings-panel').classList.add('open');
+    document.getElementById('settings-overlay').classList.add('open');
+  }
+  function closeSettings() {
+    document.getElementById('settings-panel').classList.remove('open');
+    document.getElementById('settings-overlay').classList.remove('open');
+  }
+
+  function syncTrades(btn) {
+    const orig = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = "Syncing…";
+    fetch("/api/sync-trades", { method: "POST" })
+      .then(r => r.json())
+      .then(d => {
+        if (d.error) { toast("Sync error: " + d.error, "#ef4444"); }
+        else if (d.updated > 0) { toast(`Synced ${d.updated} trade(s) — reloading…`, "#22c55e"); setTimeout(() => location.reload(), 1200); }
+        else { toast("Already up to date", "#64748b"); }
+      })
+      .catch(() => toast("Sync failed", "#ef4444"))
+      .finally(() => { btn.disabled = false; btn.innerHTML = orig; });
   }
 
   function runCycle() {
@@ -1084,7 +1429,7 @@
           toast("Agent is paused — resume first", "#f59e0b");
           return;
         }
-        setRunning(true);
+        setRunning(true, "manual");
         pollCycleStatus();
       });
   }
@@ -1095,20 +1440,23 @@
       .then(d => {
         const logEl = document.getElementById("cycle-log");
         logEl.innerHTML = d.log.map(l => `<div>${l}</div>`).join("");
+        applySchedulerState(d);
+        setRunning(d.running, d.source);
 
         if (d.running) {
           setTimeout(pollCycleStatus, 2000);
-        } else {
-          setRunning(false);
+        } else if (document.getElementById("cycle-panel").style.display === "block") {
+          // was running, now done
           toast("Analysis complete — refreshing...");
           setTimeout(() => location.reload(), 1500);
         }
       });
   }
 
-  // On page load, check if a cycle is already running (e.g. after a manual refresh mid-cycle)
+  // On page load, check if a cycle is already running and sync scheduler state
   fetch("/api/cycle-status").then(r => r.json()).then(d => {
-    if (d.running) { setRunning(true); pollCycleStatus(); }
+    if (d.running) { setRunning(true, d.source); pollCycleStatus(); }
+    applySchedulerState(d);
   });
 
   // ── Agent controls ──────────────────────────────────────────────────────
@@ -1247,49 +1595,74 @@
     });
   }
 
-  function applyHighRiskPreset() {
-    if (!confirm("Apply high-risk preset? This loosens all filters to maximise trade frequency. For pipeline testing only.")) return;
-    const preset = {
-      bypass_hours:          true,
-      confidence_min:        0.45,   // Claude threshold down from 60%
-      max_risk_pct:          2.0,    // 2% per trade
-      max_positions:         5,      // more concurrent trades
-      max_daily_loss_pct:    6.0,    // wider kill switch
-      stop_pips:             15,     // tighter stop = larger position size
-      confluence_min:        0.40,   // score threshold down from 60%
-      adx_threshold:         20,     // unlock trending regime in more markets
-      mtf_daily_threshold:   0.15,   // Daily must be very strong to veto H4
-      require_h1_confirm:    false,  // H4 fires at full strength without H1
-      trailing_stop:         true,   // trailing stop instead of fixed SL
-      trailing_stop_pips:    30,     // 30 pip trail
-    };
+  const PRESETS = {
+    conservative: {
+      bypass_hours:         true,
+      confidence_min:       0.70,
+      max_risk_pct:         0.5,
+      max_positions:        2,
+      max_daily_loss_pct:   2.0,
+      stop_pips:            25,
+      take_profit_ratio:    2.5,
+      trailing_stop:        false,
+      trailing_stop_pips:   30,
+      confluence_min:       0.65,
+      adx_threshold:        28,
+      mtf_daily_threshold:  0.40,
+      require_h1_confirm:   true,
+    },
+    balanced: {
+      bypass_hours:         true,
+      confidence_min:       0.60,
+      max_risk_pct:         1.0,
+      max_positions:        3,
+      max_daily_loss_pct:   3.0,
+      stop_pips:            20,
+      take_profit_ratio:    2.0,
+      trailing_stop:        false,
+      trailing_stop_pips:   30,
+      confluence_min:       0.60,
+      adx_threshold:        25,
+      mtf_daily_threshold:  0.30,
+      require_h1_confirm:   true,
+    },
+    aggressive: {
+      bypass_hours:         true,
+      confidence_min:       0.45,
+      max_risk_pct:         2.0,
+      max_positions:        5,
+      max_daily_loss_pct:   6.0,
+      stop_pips:            15,
+      take_profit_ratio:    1.5,
+      trailing_stop:        true,
+      trailing_stop_pips:   25,
+      confluence_min:       0.35,
+      adx_threshold:        20,
+      mtf_daily_threshold:  0.15,
+      require_h1_confirm:   false,
+    },
+  };
+
+  function applyPreset(name) {
+    const labels = { conservative: "Conservative", balanced: "Balanced", aggressive: "Aggressive" };
+    if (name === "aggressive" && !confirm("Apply Aggressive preset? This loosens all filters to maximise trade frequency. For pipeline testing only.")) return;
     fetch("/api/test-mode", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({ params: preset })
-    }).then(() => location.reload());
+      body: JSON.stringify({ params: PRESETS[name] })
+    }).then(() => { toast(`${labels[name]} preset applied`, "#7c6af7"); setTimeout(() => location.reload(), 800); });
   }
 
-  function resetTestDefaults() {
-    const defaults = {
-      bypass_hours:          true,
-      confidence_min:        0.60,
-      max_risk_pct:          1.0,
-      max_positions:         3,
-      max_daily_loss_pct:    3.0,
-      stop_pips:             20,
-      confluence_min:        0.60,
-      adx_threshold:         25,
-      mtf_daily_threshold:   0.30,
-      require_h1_confirm:    true,
-      trailing_stop:         false,
-      trailing_stop_pips:    30,
-    };
-    fetch("/api/test-mode", {
-      method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({ params: defaults })
-    }).then(() => location.reload());
+  // keep legacy names in case anything calls them
+  function resetTestDefaults()    { applyPreset('balanced'); }
+  function applyHighRiskPreset()  { applyPreset('aggressive'); }
+
+  function toggleAdvanced() {
+    const panel   = document.getElementById('advanced-params');
+    const chevron = document.getElementById('advanced-chevron');
+    const open    = panel.style.display === 'none';
+    panel.style.display   = open ? 'block' : 'none';
+    chevron.textContent   = open ? '▼' : '▶';
   }
 
   // Auto-refresh account numbers every 30s
@@ -1421,6 +1794,147 @@
 
   tickClock();
   setInterval(tickClock, 1000);
+
+  // ── Feedback Loop ────────────────────────────────────────────────────────
+  function runFeedback() {
+    const btn = document.getElementById('feedback-run-btn');
+    btn.disabled = true;
+    btn.innerHTML = "Analysing...";
+    document.getElementById('feedback-summary').style.display = 'none';
+
+    fetch("/api/feedback/run", { method: "POST" })
+      .then(r => r.json())
+      .then(d => {
+        if (d.status === "insufficient_data") {
+          toast(d.message, "#f59e0b");
+          return;
+        }
+        if (d.status === "error") {
+          toast("Feedback error: " + d.error, "#ef4444");
+          return;
+        }
+        const sumEl = document.getElementById('feedback-summary');
+        sumEl.textContent = d.summary || "";
+        sumEl.style.display = 'block';
+        document.getElementById('feedback-last-run').textContent = "Just now";
+        renderSuggestions(d.suggestions || []);
+        toast(`Feedback complete — ${(d.suggestions||[]).length} suggestion(s)`, "#7c6af7");
+      })
+      .catch(() => toast("Feedback failed", "#ef4444"))
+      .finally(() => { btn.disabled = false; btn.innerHTML = "▶ Analyse Performance"; });
+  }
+
+  function renderSuggestions(suggestions) {
+    const wrap = document.getElementById('feedback-suggestions-wrap');
+    const list = document.getElementById('feedback-suggestions-list');
+    const empty = document.getElementById('feedback-empty');
+
+    if (!suggestions.length) {
+      wrap.style.display = 'none';
+      empty.style.display = 'block';
+      return;
+    }
+
+    empty.style.display = 'none';
+    wrap.style.display = 'block';
+
+    const confidenceColor = { high: "#22c55e", medium: "#f59e0b", low: "#64748b" };
+
+    list.innerHTML = suggestions.map(s => `
+      <div id="suggestion-${s.id}" style="background:#0f172a; border:1px solid #1e293b; border-radius:8px; padding:12px 14px; margin-bottom:8px; display:flex; align-items:flex-start; gap:12px;">
+        <div style="flex:1;">
+          <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">
+            <span style="font-size:13px; font-weight:600; color:#e2e8f0;">${s.param}</span>
+            ${s.pair_specific ? `<span style="font-size:10px; background:#1e293b; color:#94a3b8; padding:1px 7px; border-radius:4px;">${s.pair_specific}</span>` : ''}
+            <span style="font-size:10px; color:${confidenceColor[s.confidence] || '#64748b'}; margin-left:auto;">${s.confidence} confidence</span>
+          </div>
+          <div style="font-size:12px; color:#64748b; margin-bottom:6px;">
+            <span style="color:#94a3b8;">${s.current_value}</span>
+            <span style="color:#475569;"> → </span>
+            <span style="color:#7c6af7; font-weight:600;">${s.suggested_value}</span>
+          </div>
+          <div style="font-size:12px; color:#64748b; line-height:1.5;">${s.rationale}</div>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:6px; flex-shrink:0;">
+          <button onclick="applyFeedbackSuggestion(${s.id}, '${s.param}', '${s.suggested_value}')"
+            style="background:#14532d; border:1px solid #22c55e55; color:#22c55e; border-radius:5px; font-size:11px; padding:4px 10px; cursor:pointer; white-space:nowrap;">
+            ✓ Apply
+          </button>
+          <button onclick="dismissFeedbackSuggestion(${s.id})"
+            style="background:transparent; border:1px solid #334155; color:#475569; border-radius:5px; font-size:11px; padding:4px 10px; cursor:pointer;">
+            Dismiss
+          </button>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  function applyFeedbackSuggestion(id, param, value) {
+    fetch(`/api/feedback/apply/${id}`, { method: "POST" })
+      .then(r => r.json())
+      .then(d => {
+        toast(`Applied: ${param} → ${value}`, "#22c55e");
+        document.getElementById(`suggestion-${id}`)?.remove();
+        checkSuggestionsEmpty();
+      });
+  }
+
+  function dismissFeedbackSuggestion(id) {
+    fetch(`/api/feedback/dismiss/${id}`, { method: "POST" })
+      .then(() => {
+        document.getElementById(`suggestion-${id}`)?.remove();
+        checkSuggestionsEmpty();
+      });
+  }
+
+  function checkSuggestionsEmpty() {
+    const list = document.getElementById('feedback-suggestions-list');
+    if (!list.children.length) {
+      document.getElementById('feedback-suggestions-wrap').style.display = 'none';
+      document.getElementById('feedback-empty').style.display = 'block';
+    }
+  }
+
+  // Load any pending suggestions on page load
+  fetch("/api/feedback/suggestions")
+    .then(r => r.json())
+    .then(suggestions => {
+      if (suggestions.length) {
+        renderSuggestions(suggestions);
+        if (suggestions[0]?.created) {
+          document.getElementById('feedback-last-run').textContent =
+            new Date(suggestions[0].created).toLocaleDateString();
+        }
+      } else {
+        document.getElementById('feedback-empty').style.display = 'block';
+      }
+    });
+
+  fetch("/api/feedback/latest")
+    .then(r => r.json())
+    .then(d => {
+      if (d.status === "none") return;
+      const sumEl = document.getElementById('feedback-summary');
+      if (d.summary) { sumEl.textContent = d.summary; sumEl.style.display = 'block'; }
+      if (d.created) document.getElementById('feedback-last-run').textContent =
+        new Date(d.created).toLocaleDateString();
+    });
+
+  // ── Auto-position tooltips to prevent viewport overflow ──────────────────
+  document.querySelectorAll('.tip').forEach(el => {
+    el.addEventListener('mouseenter', function() {
+      this.classList.remove('tip-auto-right', 'tip-auto-left');
+      const rect = this.getBoundingClientRect();
+      const tooltipWidth = 240;
+      const leftEdge  = rect.left + rect.width / 2 - tooltipWidth / 2;
+      const rightEdge = rect.left + rect.width / 2 + tooltipWidth / 2;
+      if (leftEdge < 10) {
+        this.classList.add('tip-auto-right');
+      } else if (rightEdge > window.innerWidth - 10) {
+        this.classList.add('tip-auto-left');
+      }
+    });
+  });
 </script>
 
 </body>

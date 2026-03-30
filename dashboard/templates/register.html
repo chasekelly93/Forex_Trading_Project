@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Forex Agent — Create Account</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #0f172a;
+      color: #f1f5f9;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .card {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 12px;
+      padding: 40px;
+      width: 100%;
+      max-width: 420px;
+    }
+    .logo { font-size: 22px; font-weight: 700; color: #f59e0b; margin-bottom: 4px; }
+    .subtitle { font-size: 13px; color: #64748b; margin-bottom: 28px; }
+    .row { display: flex; gap: 12px; }
+    .row .field { flex: 1; }
+    .field { margin-bottom: 16px; }
+    label { display: block; font-size: 12px; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
+    .optional { color: #475569; font-weight: 400; text-transform: none; letter-spacing: 0; }
+    input {
+      width: 100%; padding: 10px 14px;
+      background: #0f172a; border: 1px solid #334155;
+      border-radius: 8px; color: #f1f5f9; font-size: 15px; outline: none;
+      transition: border-color 0.15s;
+    }
+    input:focus { border-color: #f59e0b; }
+    button {
+      margin-top: 8px; width: 100%; padding: 11px;
+      background: #f59e0b; color: #0f172a;
+      font-weight: 700; font-size: 15px;
+      border: none; border-radius: 8px; cursor: pointer;
+      transition: background 0.15s;
+    }
+    button:hover { background: #d97706; }
+    .error {
+      margin-top: 14px; padding: 10px 14px;
+      background: #450a0a; border: 1px solid #991b1b;
+      border-radius: 8px; color: #fca5a5; font-size: 13px;
+    }
+    .hint { margin-top: 6px; font-size: 11px; color: #475569; }
+    .footer { margin-top: 20px; text-align: center; font-size: 13px; color: #64748b; }
+    .footer a { color: #f59e0b; text-decoration: none; }
+    .footer a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">Forex Agent</div>
+    <div class="subtitle">Create your account</div>
+    <form method="POST">
+      <div class="row">
+        <div class="field">
+          <label for="first_name">First name</label>
+          <input type="text" id="first_name" name="first_name" autofocus autocomplete="given-name" required>
+        </div>
+        <div class="field">
+          <label for="last_name">Last name</label>
+          <input type="text" id="last_name" name="last_name" autocomplete="family-name" required>
+        </div>
+      </div>
+      <div class="field">
+        <label for="email">Email</label>
+        <input type="email" id="email" name="email" autocomplete="email" required>
+      </div>
+      <div class="field">
+        <label for="phone">Phone <span class="optional">(optional)</span></label>
+        <input type="tel" id="phone" name="phone" autocomplete="tel" placeholder="+1 555 000 0000">
+      </div>
+      <div class="field">
+        <label for="password">Password</label>
+        <input type="password" id="password" name="password" autocomplete="new-password" required>
+        <div class="hint">Minimum 8 characters</div>
+      </div>
+      <div class="field">
+        <label for="password2">Confirm password</label>
+        <input type="password" id="password2" name="password2" autocomplete="new-password" required>
+      </div>
+      <button type="submit">Create account</button>
+      {% if error %}
+      <div class="error">{{ error }}</div>
+      {% endif %}
+    </form>
+    <div class="footer">
+      Already have an account? <a href="/login">Sign in</a>
+    </div>
+  </div>
+</body>
+</html>
