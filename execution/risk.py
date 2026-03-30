@@ -2,6 +2,7 @@
 Risk engine — all position sizing and safety checks live here.
 Nothing gets executed unless this module approves it first.
 """
+from datetime import datetime, timezone
 from config import (
     MAX_RISK_PER_TRADE_PCT,
     MAX_OPEN_POSITIONS,
@@ -100,6 +101,23 @@ class RiskEngine:
         units = min(units, 100_000)
         return units
 
+    def check_market_hours(self):
+        """
+        Forex market is closed Saturday ~22:00 UTC to Sunday ~22:00 UTC.
+        Returns (ok, message).
+        """
+        now = datetime.now(timezone.utc)
+        weekday = now.weekday()  # 0=Mon, 5=Sat, 6=Sun
+        hour = now.hour
+
+        # Saturday after 22:00 UTC or all day Sunday until 22:00 UTC
+        if weekday == 5 and hour >= 22:
+            return False, "Market closed — weekend (Saturday after 22:00 UTC)"
+        if weekday == 6 and hour < 22:
+            return False, "Market closed — weekend (Sunday before 22:00 UTC)"
+
+        return True, "Market open"
+
     def approve(self, pair, thesis):
         """
         Run all checks. Returns (approved: bool, reason: str, units: int).
@@ -113,7 +131,12 @@ class RiskEngine:
         if direction == "ERROR":
             return False, "Analysis error — skipping", 0
 
-        # Check 1: confidence
+        # Check 1: market hours
+        ok, msg = self.check_market_hours()
+        if not ok:
+            return False, msg, 0
+
+        # Check 2: confidence
         ok, msg = self.check_confidence(thesis)
         if not ok:
             return False, msg, 0

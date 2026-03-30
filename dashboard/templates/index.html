@@ -33,11 +33,7 @@
     .status-dot.live { background: #22c55e; box-shadow: 0 0 6px #22c55e; }
     .status-dot.paused { background: #f59e0b; box-shadow: 0 0 6px #f59e0b; }
 
-    .controls {
-      display: flex;
-      gap: 10px;
-      align-items: center;
-    }
+    .controls { display: flex; gap: 10px; align-items: center; }
 
     .btn {
       padding: 8px 16px;
@@ -53,10 +49,17 @@
     .btn-pause  { background: #f59e0b; color: #000; }
     .btn-resume { background: #22c55e; color: #000; }
     .btn-danger { background: #ef4444; color: #fff; }
+    .btn-tooltip-toggle {
+      background: transparent;
+      border: 1px solid #2d3148;
+      color: #64748b;
+      font-size: 12px;
+      padding: 6px 12px;
+    }
+    .btn-tooltip-toggle.active { border-color: #7c6af7; color: #7c6af7; }
 
     main { padding: 28px 32px; max-width: 1400px; margin: 0 auto; }
 
-    /* Cards */
     .cards {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -80,16 +83,11 @@
       margin-bottom: 8px;
     }
 
-    .card .value {
-      font-size: 26px;
-      font-weight: 600;
-    }
-
+    .card .value { font-size: 26px; font-weight: 600; }
     .card .value.positive { color: #22c55e; }
     .card .value.negative { color: #ef4444; }
     .card .value.neutral  { color: #e2e8f0; }
 
-    /* Section headers */
     .section { margin-bottom: 28px; }
     .section h2 {
       font-size: 14px;
@@ -102,12 +100,7 @@
       border-bottom: 1px solid #2d3148;
     }
 
-    /* Tables */
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 13px;
-    }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
 
     th {
       text-align: left;
@@ -143,11 +136,7 @@
     .tag-open   { background: #1e3a5f; color: #60a5fa; }
     .tag-closed { background: #1e293b; color: #64748b; }
 
-    .reasoning-cell {
-      max-width: 420px;
-      color: #94a3b8;
-      line-height: 1.5;
-    }
+    .reasoning-cell { max-width: 420px; color: #94a3b8; line-height: 1.5; }
 
     .empty-state {
       color: #4b5563;
@@ -176,7 +165,7 @@
       padding: 12px 18px;
       font-size: 13px;
       display: none;
-      z-index: 999;
+      z-index: 9999;
     }
 
     .grid-2 {
@@ -186,24 +175,107 @@
     }
 
     @media (max-width: 900px) { .grid-2 { grid-template-columns: 1fr; } }
+
+    /* ── Tooltip system ── */
+    .tip {
+      position: relative;
+      display: inline-block;
+      cursor: help;
+    }
+
+    .tip::after {
+      content: attr(data-tip);
+      position: absolute;
+      bottom: calc(100% + 8px);
+      left: 50%;
+      transform: translateX(-50%);
+      background: #1e2235;
+      color: #e2e8f0;
+      border: 1px solid #3d4468;
+      border-radius: 6px;
+      padding: 8px 12px;
+      font-size: 12px;
+      font-weight: 400;
+      line-height: 1.5;
+      white-space: normal;
+      width: 240px;
+      text-align: left;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.15s;
+      z-index: 1000;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+    }
+
+    /* Arrow */
+    .tip::before {
+      content: '';
+      position: absolute;
+      bottom: calc(100% + 2px);
+      left: 50%;
+      transform: translateX(-50%);
+      border: 5px solid transparent;
+      border-top-color: #3d4468;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.15s;
+      z-index: 1001;
+    }
+
+    /* Show on hover — disabled when tooltips are off */
+    body.tooltips-on .tip:hover::after,
+    body.tooltips-on .tip:hover::before { opacity: 1; }
+
+    /* Tip anchored to right edge when near right side */
+    .tip.tip-left::after { left: auto; right: 0; transform: none; }
+    .tip.tip-left::before { left: auto; right: 12px; transform: none; }
+
+    /* Underline hint that something is hoverable */
+    body.tooltips-on .tip {
+      border-bottom: 1px dashed #3d4468;
+    }
+    body.tooltips-on th .tip {
+      border-bottom: none;
+    }
+
+    .positive { color: #22c55e; }
+    .negative { color: #ef4444; }
   </style>
 </head>
-<body>
+<body class="tooltips-on">
 
 <header>
   <h1><span>Forex</span> Agent</h1>
   <div class="controls">
-    <span id="agent-status">
+    <span id="agent-status"
+      class="tip"
+      data-tip="Green = agent is active and will execute trades when Run Analysis is triggered. Yellow = paused, analysis runs but no orders placed.">
       <span class="status-dot {% if paused %}paused{% else %}live{% endif %}"></span>
       {% if paused %}Paused{% else %}Live{% endif %}
     </span>
-    <button id="run-btn" class="btn btn-run" onclick="runCycle()">&#9654; Run Analysis</button>
+    <button id="run-btn" class="btn btn-run tip" onclick="runCycle()"
+      data-tip="Runs one full analysis cycle: fetches live prices, calculates all indicators, asks Claude for a trade thesis on each pair, then executes any approved signals.">
+      &#9654; Run Analysis
+    </button>
     {% if paused %}
-      <button class="btn btn-resume" onclick="resumeAgent()">Resume Agent</button>
+      <button class="btn btn-resume tip" onclick="resumeAgent()"
+        data-tip="Resume the agent. New analysis cycles will execute trades again.">
+        Resume Agent
+      </button>
     {% else %}
-      <button class="btn btn-pause" onclick="pauseAgent()">Pause Agent</button>
+      <button class="btn btn-pause tip" onclick="pauseAgent()"
+        data-tip="Pause the agent. Analysis still runs but no orders will be placed until you resume.">
+        Pause Agent
+      </button>
     {% endif %}
-    <button class="btn btn-danger" onclick="confirmCloseAll()">Close All Positions</button>
+    <button class="btn btn-danger tip" onclick="confirmCloseAll()"
+      data-tip="Immediately close every open position at market price. Use in emergencies or to manually exit all trades.">
+      Close All Positions
+    </button>
+    <button id="tooltip-toggle" class="btn btn-tooltip-toggle active" onclick="toggleTooltips()"
+      data-tip="">
+      ? Tooltips ON
+    </button>
   </div>
 </header>
 
@@ -215,31 +287,41 @@
       <div class="card"><label>Status</label><div class="value negative">API Error</div></div>
     {% else %}
       <div class="card">
-        <label>Account Balance</label>
+        <label class="tip" data-tip="Your deposited capital minus any realized losses. This updates when trades close.">
+          Account Balance
+        </label>
         <div class="value neutral">${{ "{:,.2f}".format(account.balance) }}</div>
       </div>
       <div class="card">
-        <label>Net Asset Value</label>
+        <label class="tip" data-tip="Net Asset Value = Balance + Open P&L. This is your true current worth including all floating positions.">
+          Net Asset Value
+        </label>
         <div class="value neutral">${{ "{:,.2f}".format(account.nav) }}</div>
       </div>
       <div class="card">
-        <label>Open P&amp;L</label>
+        <label class="tip" data-tip="Unrealized profit/loss across all currently open positions. This fluctuates with the market and only becomes real when you close.">
+          Open P&amp;L
+        </label>
         <div class="value {% if account.open_pnl >= 0 %}positive{% else %}negative{% endif %}">
           ${{ "{:,.2f}".format(account.open_pnl) }}
         </div>
       </div>
       <div class="card">
-        <label>Open Positions</label>
+        <label class="tip" data-tip="Number of currently open trades. The agent is configured to hold a maximum of 3 positions at once.">
+          Open Positions
+        </label>
         <div class="value neutral">{{ positions | length }}</div>
       </div>
       <div class="card">
-        <label>Currency</label>
+        <label class="tip" data-tip="The base currency your account is denominated in. All P&L is converted to this currency.">
+          Currency
+        </label>
         <div class="value neutral">{{ account.currency }}</div>
       </div>
     {% endif %}
   </div>
 
-  <!-- Analysis Log (shown while cycle is running) -->
+  <!-- Analysis Log -->
   <div id="cycle-panel" style="display:none; margin-bottom:24px;">
     <div class="card">
       <label>Analysis Running...</label>
@@ -256,18 +338,26 @@
         <table>
           <thead>
             <tr>
-              <th>Pair</th><th>Side</th><th>Units</th><th>Unrealized P&L</th><th></th>
+              <th><span class="tip" data-tip="The currency pair being traded. Format is BASE/QUOTE — e.g. EUR_USD means you're buying/selling Euros priced in US Dollars.">Pair</span></th>
+              <th><span class="tip" data-tip="LONG = bought the base currency, profiting if price rises. SHORT = sold the base currency, profiting if price falls.">Side</span></th>
+              <th><span class="tip" data-tip="Number of currency units in the position. 100,000 units = 1 standard lot. Position size is calculated by the risk engine based on your account balance and stop distance.">Units</span></th>
+              <th><span class="tip" data-tip="Floating profit or loss on this position right now. Positive = trade is winning. Negative = trade is losing. Not realized until closed.">Unrealized P&L</span></th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
             {% for pos in positions %}
             <tr>
-              <td>{{ pos.instrument }}</td>
+              <td>
+                <span class="tip" data-tip="{{ pos.instrument.replace('_', '/') }} — {{ pos.instrument.split('_')[0] }} is the base currency, {{ pos.instrument.split('_')[1] }} is the quote. Price tells you how many {{ pos.instrument.split('_')[1] }} buy 1 {{ pos.instrument.split('_')[0] }}.">
+                  {{ pos.instrument }}
+                </span>
+              </td>
               <td>
                 {% if pos.long.units | int > 0 %}
-                  <span class="tag tag-buy">LONG</span>
+                  <span class="tag tag-buy tip" data-tip="LONG: You bought {{ pos.instrument.split('_')[0] }}. You profit when {{ pos.instrument }} price rises.">LONG</span>
                 {% else %}
-                  <span class="tag tag-sell">SHORT</span>
+                  <span class="tag tag-sell tip" data-tip="SHORT: You sold {{ pos.instrument.split('_')[0] }}. You profit when {{ pos.instrument }} price falls.">SHORT</span>
                 {% endif %}
               </td>
               <td>{{ pos.long.units if pos.long.units | int > 0 else pos.short.units }}</td>
@@ -275,7 +365,8 @@
                 ${{ "{:,.2f}".format(pos.unrealizedPL | float) }}
               </td>
               <td>
-                <button class="close-btn" onclick="closePosition('{{ pos.instrument }}')">Close</button>
+                <button class="close-btn tip" data-tip="Close this position immediately at the current market price."
+                  onclick="closePosition('{{ pos.instrument }}')">Close</button>
               </td>
             </tr>
             {% endfor %}
@@ -292,20 +383,40 @@
       {% if signals %}
         <table>
           <thead>
-            <tr><th>Time</th><th>Pair</th><th>TF</th><th>Signal</th><th>Conf.</th></tr>
+            <tr>
+              <th>Time</th>
+              <th><span class="tip" data-tip="The currency pair that was analyzed.">Pair</span></th>
+              <th><span class="tip" data-tip="Timeframe Claude selected for the trade. H1 = 1-hour candles, H4 = 4-hour candles, D = Daily candles. Higher timeframes = longer-duration trades.">TF</span></th>
+              <th><span class="tip" data-tip="Claude's trade recommendation. BUY = go long, SELL = go short, NO_TRADE = conditions not favorable enough to trade.">Signal</span></th>
+              <th><span class="tip" data-tip="Claude's confidence in the trade thesis, from 0–100%. Only signals above 60% are executed. Higher confidence = stronger multi-timeframe alignment.">Conf.</span></th>
+            </tr>
           </thead>
           <tbody>
             {% for s in signals %}
             <tr>
               <td style="color:#64748b; white-space:nowrap;">{{ s[1][:16] }}</td>
-              <td>{{ s[2] }}</td>
-              <td>{{ s[3] }}</td>
               <td>
-                <span class="tag {% if s[4]=='BUY' %}tag-buy{% elif s[4]=='SELL' %}tag-sell{% else %}tag-no{% endif %}">
+                <span class="tip" data-tip="{{ s[2].replace('_', '/') }} — hover the Claude Reasoning Log below for the full analysis.">
+                  {{ s[2] }}
+                </span>
+              </td>
+              <td>
+                <span class="tip" data-tip="{% if s[3]=='H1' %}1-hour chart. Short to medium-term signal.{% elif s[3]=='H4' %}4-hour chart. Medium-term swing trade signal.{% else %}Daily chart. Longer-term position signal.{% endif %}">
+                  {{ s[3] }}
+                </span>
+              </td>
+              <td>
+                <span class="tag tip
+                  {% if s[4]=='BUY' %}tag-buy{% elif s[4]=='SELL' %}tag-sell{% else %}tag-no{% endif %}"
+                  data-tip="{% if s[4]=='BUY' %}BUY: Claude recommends going long — expecting price to rise.{% elif s[4]=='SELL' %}SELL: Claude recommends going short — expecting price to fall.{% else %}NO_TRADE: Signals not strong enough or conflicting across timeframes. No order placed.{% endif %}">
                   {{ s[4] }}
                 </span>
               </td>
-              <td>{{ "{:.0%}".format(s[5]) if s[5] else "—" }}</td>
+              <td>
+                <span class="tip" data-tip="{% if s[5] and s[5] >= 0.75 %}High confidence — strong signal alignment across multiple timeframes.{% elif s[5] and s[5] >= 0.60 %}Moderate confidence — meets the 60% minimum threshold to execute.{% else %}Below threshold — no trade placed regardless of direction.{% endif %}">
+                  {{ "{:.0%}".format(s[5]) if s[5] else "—" }}
+                </span>
+              </td>
             </tr>
             {% endfor %}
           </tbody>
@@ -324,9 +435,14 @@
       <table>
         <thead>
           <tr>
-            <th>Opened</th><th>Pair</th><th>Direction</th>
-            <th>Units</th><th>Open Price</th><th>Close Price</th>
-            <th>P&amp;L</th><th>Status</th>
+            <th>Opened</th>
+            <th><span class="tip" data-tip="The currency pair traded.">Pair</span></th>
+            <th><span class="tip" data-tip="BUY = went long (bought base currency). SELL = went short (sold base currency).">Direction</span></th>
+            <th><span class="tip" data-tip="Number of currency units traded. 100,000 = 1 standard lot. Sized automatically by the risk engine.">Units</span></th>
+            <th><span class="tip" data-tip="The price at which the trade was opened (market fill price).">Open Price</span></th>
+            <th><span class="tip" data-tip="The price at which the trade was closed. Blank if still open.">Close Price</span></th>
+            <th><span class="tip" data-tip="Realized profit or loss after the trade closed. Positive = profitable. Blank if still open.">P&amp;L</span></th>
+            <th><span class="tip" data-tip="Open = position is currently active. Closed = trade has been exited and P&L is realized.">Status</span></th>
           </tr>
         </thead>
         <tbody>
@@ -361,7 +477,12 @@
     {% if signals %}
       <table>
         <thead>
-          <tr><th>Time</th><th>Pair</th><th>Signal</th><th>Reasoning</th></tr>
+          <tr>
+            <th>Time</th>
+            <th>Pair</th>
+            <th>Signal</th>
+            <th><span class="tip" data-tip="Claude's full written analysis — synthesizes technical indicators across H1/H4/Daily timeframes with fundamental data (COT positioning, news, economic calendar) into a trade thesis.">Reasoning</span></th>
+          </tr>
         </thead>
         <tbody>
           {% for s in signals %}
@@ -390,6 +511,31 @@
 <div id="toast"></div>
 
 <script>
+  // ── Tooltip toggle ──────────────────────────────────────────────────────
+  const tooltipBtn = document.getElementById("tooltip-toggle");
+
+  function applyTooltipState(on) {
+    if (on) {
+      document.body.classList.add("tooltips-on");
+      tooltipBtn.textContent = "? Tooltips ON";
+      tooltipBtn.classList.add("active");
+    } else {
+      document.body.classList.remove("tooltips-on");
+      tooltipBtn.textContent = "? Tooltips OFF";
+      tooltipBtn.classList.remove("active");
+    }
+  }
+
+  function toggleTooltips() {
+    const on = !document.body.classList.contains("tooltips-on");
+    localStorage.setItem("tooltips", on ? "on" : "off");
+    applyTooltipState(on);
+  }
+
+  // Restore saved preference
+  applyTooltipState(localStorage.getItem("tooltips") !== "off");
+
+  // ── Toast ───────────────────────────────────────────────────────────────
   function toast(msg, color="#22c55e") {
     const t = document.getElementById("toast");
     t.textContent = msg;
@@ -398,6 +544,7 @@
     setTimeout(() => t.style.display = "none", 3000);
   }
 
+  // ── Run Analysis ────────────────────────────────────────────────────────
   function runCycle() {
     const btn = document.getElementById("run-btn");
     btn.disabled = true;
@@ -441,6 +588,7 @@
       });
   }
 
+  // ── Agent controls ──────────────────────────────────────────────────────
   function pauseAgent() {
     fetch("/api/pause", { method: "POST" })
       .then(() => { toast("Agent paused", "#f59e0b"); setTimeout(() => location.reload(), 800); });
@@ -465,14 +613,9 @@
       .then(d => { toast(`${instrument} closed`); setTimeout(() => location.reload(), 800); });
   }
 
-  // Auto-refresh account numbers every 30s without full page reload
+  // Auto-refresh account numbers every 30s
   setInterval(() => {
-    fetch("/api/account")
-      .then(r => r.json())
-      .then(d => {
-        if (d.error) return;
-        // Could update specific DOM elements here in a future enhancement
-      });
+    fetch("/api/account").then(r => r.json()).then(d => { /* future live updates */ });
   }, 30000);
 </script>
 
