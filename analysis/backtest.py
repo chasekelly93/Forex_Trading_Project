@@ -49,22 +49,26 @@ def _fetch_candles(pair: str, start: str, end: str, granularity: str) -> pd.Data
     env     = os.environ.get("OANDA_ENVIRONMENT", "practice")
     api     = OandaAPI(access_token=api_key, environment=env)
 
-    end_iso = f"{end}T23:59:59Z"
-    all_candles = []
-    cursor = f"{start}T00:00:00Z"
+    # OANDA caps at 5000 candles per request — chunk into safe windows
+    gran_mins   = _GRAN_MINUTES.get(granularity, 60)
+    chunk_bars  = 4000                                       # stay under 5000 limit
+    chunk_delta = timedelta(minutes=gran_mins * chunk_bars)
 
-    while True:
+    end_dt  = datetime.fromisoformat(f"{end}T23:59:59").replace(tzinfo=timezone.utc)
+    cursor  = datetime.fromisoformat(f"{start}T00:00:00").replace(tzinfo=timezone.utc)
+    all_candles = []
+
+    while cursor < end_dt:
+        chunk_end = min(cursor + chunk_delta, end_dt)
         params = {
             "granularity": granularity,
-            "from": cursor,
-            "to":   end_iso,
+            "from": cursor.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "to":   chunk_end.strftime("%Y-%m-%dT%H:%M:%SZ"),
             "price": "M",
         }
         r = instruments.InstrumentsCandles(pair, params=params)
         api.request(r)
         candles = r.response.get("candles", [])
-        if not candles:
-            break
 
         for c in candles:
             if not c["complete"]:
@@ -79,17 +83,7 @@ def _fetch_candles(pair: str, start: str, end: str, granularity: str) -> pd.Data
                 "volume": int(c.get("volume", 0)),
             })
 
-        # OANDA returns max 5000 candles per request — paginate if needed
-        if len(candles) < 5000:
-            break
-
-        last_time = candles[-1]["time"][:19]
-        dt = datetime.fromisoformat(last_time).replace(tzinfo=timezone.utc)
-        dt += timedelta(minutes=_GRAN_MINUTES.get(granularity, 60))
-        cursor = dt.strftime("%Y-%m-%dT%H:%M:%SZ")
-
-        if cursor >= end_iso:
-            break
+        cursor = chunk_end + timedelta(minutes=gran_mins)
 
     if not all_candles:
         raise ValueError(f"No candles returned for {pair} {start}→{end} {granularity}")
