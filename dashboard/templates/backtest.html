@@ -40,6 +40,7 @@
     select:focus, input:focus { border-color: #f59e0b; }
     .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
     .row2 > * { min-width: 0; }
+    @media (max-width: 500px) { .row2 { grid-template-columns: 1fr; } }
 
     .btn {
       width: 100%; padding: 10px; font-weight: 700; font-size: 14px;
