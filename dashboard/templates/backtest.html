@@ -53,10 +53,22 @@
       margin-bottom: 20px;
     }
     @media (max-width: 700px) { .summary-grid { grid-template-columns: repeat(2, 1fr); } }
-    .stat { background: #0f172a; border: 1px solid #1e293b; border-radius: 8px; padding: 12px; }
-    .stat-label { font-size: 11px; color: #475569; text-transform: uppercase; letter-spacing: 0.05em; }
+    .stat { background: #0f172a; border: 1px solid #1e293b; border-radius: 8px; padding: 12px; position: relative; cursor: default; }
+    .stat-label { font-size: 11px; color: #475569; text-transform: uppercase; letter-spacing: 0.05em; display: flex; align-items: center; gap: 5px; }
+    .stat-label .tip-icon { color: #334155; font-size: 11px; }
     .stat-value { font-size: 22px; font-weight: 700; margin-top: 4px; }
     .pos { color: #22c55e; } .neg { color: #ef4444; } .neutral { color: #f1f5f9; }
+    .tooltip {
+      visibility: hidden; opacity: 0;
+      position: absolute; bottom: calc(100% + 8px); left: 50%;
+      transform: translateX(-50%);
+      background: #0f172a; border: 1px solid #334155;
+      border-radius: 8px; padding: 10px 12px;
+      font-size: 12px; color: #cbd5e1; line-height: 1.5;
+      width: 220px; z-index: 10; pointer-events: none;
+      transition: opacity 0.15s;
+    }
+    .stat:hover .tooltip { visibility: visible; opacity: 1; }
 
     .chart-wrap { position: relative; height: 220px; margin-bottom: 20px; }
 
@@ -196,7 +208,7 @@
             `<div class="card"><div class="error-box">${data.error}</div></div>`;
           return;
         }
-        renderResults(data);
+        renderResults(data, payload);
       } catch (e) {
         btn.disabled = false;
         btn.textContent = "Run Backtest";
@@ -205,44 +217,53 @@
       }
     }
 
-    function renderResults(data) {
+    function renderResults(data, payload) {
       const s = data.summary;
       const pnlClass = s.total_pnl >= 0 ? "pos" : "neg";
       const retClass = s.return_pct >= 0 ? "pos" : "neg";
 
+      const breakeven = s.total_trades > 0 ? Math.round(100 / (1 + (payload?.take_profit_ratio || 3))) : 34;
       const html = `
         <div class="summary-grid">
           <div class="stat">
-            <div class="stat-label">Total trades</div>
+            <div class="stat-label">Total trades <span class="tip-icon">?</span></div>
             <div class="stat-value neutral">${s.total_trades}</div>
+            <div class="tooltip">How many times the signal engine fired a BUY or SELL strong enough to enter during this period.</div>
           </div>
           <div class="stat">
-            <div class="stat-label">Win rate</div>
+            <div class="stat-label">Win rate <span class="tip-icon">?</span></div>
             <div class="stat-value ${s.win_rate >= 50 ? 'pos' : 'neg'}">${s.win_rate}%</div>
+            <div class="tooltip">% of trades that hit Take Profit before Stop Loss. With your TP ratio, you need >${breakeven}% wins to be profitable.</div>
           </div>
           <div class="stat">
-            <div class="stat-label">Net P&amp;L</div>
+            <div class="stat-label">Net P&amp;L <span class="tip-icon">?</span></div>
             <div class="stat-value ${pnlClass}">$${s.total_pnl.toLocaleString()}</div>
+            <div class="tooltip">Total dollar profit or loss over the test period, starting from your initial balance.</div>
           </div>
           <div class="stat">
-            <div class="stat-label">Return</div>
+            <div class="stat-label">Return <span class="tip-icon">?</span></div>
             <div class="stat-value ${retClass}">${s.return_pct}%</div>
+            <div class="tooltip">Net P&L as a percentage of your starting balance.</div>
           </div>
           <div class="stat">
-            <div class="stat-label">Max drawdown</div>
+            <div class="stat-label">Max drawdown <span class="tip-icon">?</span></div>
             <div class="stat-value neg">${s.max_drawdown}%</div>
+            <div class="tooltip">Worst peak-to-trough drop in equity during the period. Lower is better — above 20% is concerning.</div>
           </div>
           <div class="stat">
-            <div class="stat-label">Sharpe ratio</div>
+            <div class="stat-label">Sharpe ratio <span class="tip-icon">?</span></div>
             <div class="stat-value ${s.sharpe >= 1 ? 'pos' : 'neutral'}">${s.sharpe}</div>
+            <div class="tooltip">Risk-adjusted return. Above 1.0 is good, above 2.0 is excellent. Negative means losses outweigh the risk taken.</div>
           </div>
           <div class="stat">
-            <div class="stat-label">Avg win</div>
+            <div class="stat-label">Avg win <span class="tip-icon">?</span></div>
             <div class="stat-value pos">$${s.avg_win}</div>
+            <div class="tooltip">Average dollar gain on winning trades. Should be larger than avg loss — that's your R:R ratio working.</div>
           </div>
           <div class="stat">
-            <div class="stat-label">Avg loss</div>
+            <div class="stat-label">Avg loss <span class="tip-icon">?</span></div>
             <div class="stat-value neg">$${s.avg_loss}</div>
+            <div class="tooltip">Average dollar loss on losing trades. Driven by your stop size and risk % per trade.</div>
           </div>
         </div>
 
