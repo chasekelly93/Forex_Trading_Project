@@ -848,6 +848,134 @@ def backtest_page():
     return render_template("backtest.html")
 
 
+@app.route("/api/backtest-all", methods=["POST"])
+def api_backtest_all():
+    """
+    Run a full parameter sweep across all pairs and 3 configs.
+    Returns ranked results + a plain-English summary.
+    """
+    data  = request.get_json()
+    start = data.get("start", "")
+    end   = data.get("end", "")
+    balance  = float(data.get("initial_balance", 10000))
+    risk_pct = float(data.get("risk_pct", 1.0))
+
+    if not start or not end:
+        return jsonify({"error": "start and end dates are required"}), 400
+
+    from analysis.backtest import run_backtest
+    from config import PAIRS
+
+    CONFIGS = [
+        {"label": "H4 · 15pip · 3:1",  "granularity": "H4", "stop_pips": 15, "take_profit_ratio": 3.0, "confidence_min": 0.55, "confluence_min": 0.60},
+        {"label": "H4 · 20pip · 2:1",  "granularity": "H4", "stop_pips": 20, "take_profit_ratio": 2.0, "confidence_min": 0.55, "confluence_min": 0.60},
+        {"label": "H1 · 20pip · 2:1",  "granularity": "H1", "stop_pips": 20, "take_profit_ratio": 2.0, "confidence_min": 0.55, "confluence_min": 0.60},
+    ]
+
+    results = []
+    errors  = []
+
+    for pair in PAIRS:
+        for cfg in CONFIGS:
+            try:
+                r = run_backtest(
+                    pair=pair,
+                    start=start,
+                    end=end,
+                    granularity=cfg["granularity"],
+                    stop_pips=cfg["stop_pips"],
+                    take_profit_ratio=cfg["take_profit_ratio"],
+                    confidence_min=cfg["confidence_min"],
+                    confluence_min=cfg["confluence_min"],
+                    initial_balance=balance,
+                    risk_pct=risk_pct,
+                )
+                s = r["summary"]
+                results.append({
+                    "pair":         pair,
+                    "config":       cfg["label"],
+                    "granularity":  cfg["granularity"],
+                    "stop_pips":    cfg["stop_pips"],
+                    "tp_ratio":     cfg["take_profit_ratio"],
+                    "total_trades": s["total_trades"],
+                    "win_rate":     s["win_rate"],
+                    "total_pnl":    s["total_pnl"],
+                    "return_pct":   s["return_pct"],
+                    "max_drawdown": s["max_drawdown"],
+                    "sharpe":       s["sharpe"],
+                    "avg_win":      s["avg_win"],
+                    "avg_loss":     s["avg_loss"],
+                    "equity_curve": r["equity_curve"],
+                })
+            except Exception as e:
+                errors.append(f"{pair} {cfg['label']}: {e}")
+
+    if not results:
+        return jsonify({"error": "All backtests failed", "details": errors}), 500
+
+    # Sort by Sharpe descending
+    results.sort(key=lambda x: x["sharpe"], reverse=True)
+
+    # Generate plain-English summary
+    best    = results[0]
+    winners = [r for r in results if r["total_pnl"] > 0]
+    losers  = [r for r in results if r["total_pnl"] <= 0]
+    no_trades = [r for r in results if r["total_trades"] == 0]
+
+    best_pairs = {}
+    for r in results:
+        if r["total_pnl"] > 0:
+            if r["pair"] not in best_pairs or r["sharpe"] > best_pairs[r["pair"]]["sharpe"]:
+                best_pairs[r["pair"]] = r
+
+    top_pair = max(best_pairs.values(), key=lambda x: x["sharpe"]) if best_pairs else None
+
+    summary_lines = []
+    summary_lines.append(
+        f"Across {len(PAIRS)} pairs and {len(CONFIGS)} parameter configurations ({len(results)} total runs), "
+        f"{len(winners)} were profitable and {len(losers)} were not."
+    )
+
+    if top_pair:
+        summary_lines.append(
+            f"The strongest result was {top_pair['pair']} on {top_pair['config']} — "
+            f"{top_pair['win_rate']}% win rate, +{top_pair['return_pct']}% return, "
+            f"Sharpe {top_pair['sharpe']}. This pair/config combination has the best risk-adjusted edge in this period."
+        )
+
+    if no_trades:
+        nt_pairs = list({r["pair"] for r in no_trades})
+        summary_lines.append(
+            f"{', '.join(nt_pairs)} produced no signals at these confidence thresholds — "
+            f"the signal engine found no qualifying setups in those markets during this period."
+        )
+
+    h4_results  = [r for r in results if r["granularity"] == "H4" and r["total_trades"] > 0]
+    h1_results  = [r for r in results if r["granularity"] == "H1" and r["total_trades"] > 0]
+    avg_h4_sharpe = sum(r["sharpe"] for r in h4_results) / len(h4_results) if h4_results else 0
+    avg_h1_sharpe = sum(r["sharpe"] for r in h1_results) / len(h1_results) if h1_results else 0
+
+    if h4_results and h1_results:
+        if avg_h4_sharpe > avg_h1_sharpe:
+            summary_lines.append(
+                f"H4 timeframe outperformed H1 on average (Sharpe {avg_h4_sharpe:.2f} vs {avg_h1_sharpe:.2f}), "
+                f"suggesting the signal engine performs better on slower, higher-quality setups."
+            )
+        else:
+            summary_lines.append(
+                f"H1 timeframe outperformed H4 on average (Sharpe {avg_h1_sharpe:.2f} vs {avg_h4_sharpe:.2f}), "
+                f"suggesting more frequent signals are working better in this period."
+            )
+
+    return jsonify({
+        "results":  results,
+        "summary":  " ".join(summary_lines),
+        "errors":   errors,
+        "start":    start,
+        "end":      end,
+    })
+
+
 @app.route("/api/backtest", methods=["POST"])
 def api_backtest():
     data = request.get_json()
