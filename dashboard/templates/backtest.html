@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Forex Agent — Backtester</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #0f172a; color: #f1f5f9;
+      min-height: 100vh; padding: 24px;
+    }
+    a { color: #f59e0b; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .header { display: flex; align-items: center; gap: 16px; margin-bottom: 24px; }
+    .logo { font-size: 20px; font-weight: 700; color: #f59e0b; }
+    .nav-link { font-size: 13px; color: #64748b; }
+
+    .grid { display: grid; grid-template-columns: 320px 1fr; gap: 20px; }
+    @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+
+    .card {
+      background: #1e293b; border: 1px solid #334155;
+      border-radius: 12px; padding: 20px;
+    }
+    h2 { font-size: 14px; font-weight: 600; color: #94a3b8;
+         text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 16px; }
+
+    .field { margin-bottom: 14px; }
+    label { display: block; font-size: 11px; font-weight: 600; color: #64748b;
+            text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 5px; }
+    select, input[type="text"], input[type="date"], input[type="number"] {
+      width: 100%; padding: 8px 12px;
+      background: #0f172a; border: 1px solid #334155;
+      border-radius: 8px; color: #f1f5f9; font-size: 14px; outline: none;
+    }
+    select:focus, input:focus { border-color: #f59e0b; }
+    .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+    button {
+      width: 100%; padding: 10px; background: #f59e0b; color: #0f172a;
+      font-weight: 700; font-size: 14px; border: none; border-radius: 8px;
+      cursor: pointer; transition: background 0.15s; margin-top: 4px;
+    }
+    button:hover { background: #d97706; }
+    button:disabled { background: #475569; color: #94a3b8; cursor: not-allowed; }
+
+    .summary-grid {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;
+      margin-bottom: 20px;
+    }
+    @media (max-width: 700px) { .summary-grid { grid-template-columns: repeat(2, 1fr); } }
+    .stat { background: #0f172a; border: 1px solid #1e293b; border-radius: 8px; padding: 12px; }
+    .stat-label { font-size: 11px; color: #475569; text-transform: uppercase; letter-spacing: 0.05em; }
+    .stat-value { font-size: 22px; font-weight: 700; margin-top: 4px; }
+    .pos { color: #22c55e; } .neg { color: #ef4444; } .neutral { color: #f1f5f9; }
+
+    .chart-wrap { position: relative; height: 220px; margin-bottom: 20px; }
+
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th { text-align: left; font-size: 11px; color: #475569; text-transform: uppercase;
+         letter-spacing: 0.05em; padding: 6px 8px; border-bottom: 1px solid #334155; }
+    td { padding: 6px 8px; border-bottom: 1px solid #1e293b; color: #cbd5e1; }
+    tr:last-child td { border-bottom: none; }
+    .buy { color: #22c55e; } .sell { color: #ef4444; }
+    .tp-exit { color: #22c55e; } .sl-exit { color: #ef4444; }
+
+    .empty { color: #475569; text-align: center; padding: 32px; font-size: 13px; }
+    .spinner { text-align: center; padding: 32px; color: #64748b; font-size: 13px; }
+    .error-box {
+      background: #450a0a; border: 1px solid #991b1b;
+      border-radius: 8px; padding: 12px 16px; color: #fca5a5; font-size: 13px;
+      margin-bottom: 16px;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="logo">Forex Agent</div>
+    <a href="/" class="nav-link">← Dashboard</a>
+  </div>
+
+  <div class="grid">
+    <!-- Left: params -->
+    <div class="card">
+      <h2>Backtest Parameters</h2>
+      <div class="field">
+        <label>Pair</label>
+        <select id="pair">
+          <option>EUR_USD</option><option>GBP_USD</option><option>USD_JPY</option>
+          <option>USD_CHF</option><option>AUD_USD</option><option>USD_CAD</option>
+          <option>NZD_USD</option><option>EUR_GBP</option><option>EUR_JPY</option>
+          <option>GBP_JPY</option><option>XAU_USD</option>
+        </select>
+      </div>
+      <div class="row2">
+        <div class="field">
+          <label>Start date</label>
+          <input type="date" id="start" value="2024-01-01">
+        </div>
+        <div class="field">
+          <label>End date</label>
+          <input type="date" id="end" value="2024-06-30">
+        </div>
+      </div>
+      <div class="field">
+        <label>Granularity</label>
+        <select id="granularity">
+          <option value="M15">M15</option>
+          <option value="M30">M30</option>
+          <option value="H1" selected>H1</option>
+          <option value="H4">H4</option>
+          <option value="D">Daily</option>
+        </select>
+      </div>
+      <div class="row2">
+        <div class="field">
+          <label>Stop (pips)</label>
+          <input type="number" id="stop_pips" value="20" min="5" step="1">
+        </div>
+        <div class="field">
+          <label>TP ratio</label>
+          <input type="number" id="tp_ratio" value="2.0" min="1" step="0.5">
+        </div>
+      </div>
+      <div class="row2">
+        <div class="field">
+          <label>Min confidence</label>
+          <input type="number" id="conf_min" value="0.55" min="0.4" max="0.95" step="0.05">
+        </div>
+        <div class="field">
+          <label>Min confluence</label>
+          <input type="number" id="confl_min" value="0.55" min="0.4" max="0.95" step="0.05">
+        </div>
+      </div>
+      <div class="row2">
+        <div class="field">
+          <label>Initial balance ($)</label>
+          <input type="number" id="balance" value="10000" min="1000" step="1000">
+        </div>
+        <div class="field">
+          <label>Risk per trade (%)</label>
+          <input type="number" id="risk_pct" value="1.0" min="0.1" max="5" step="0.1">
+        </div>
+      </div>
+      <button id="run-btn" onclick="runBacktest()">Run Backtest</button>
+    </div>
+
+    <!-- Right: results -->
+    <div id="results">
+      <div class="card">
+        <div class="empty">Configure parameters and click Run Backtest.</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let equityChart = null;
+
+    async function runBacktest() {
+      const btn = document.getElementById("run-btn");
+      btn.disabled = true;
+      btn.textContent = "Running…";
+
+      document.getElementById("results").innerHTML = `
+        <div class="card"><div class="spinner">Fetching candles and running simulation…</div></div>`;
+
+      const payload = {
+        pair:               document.getElementById("pair").value,
+        start:              document.getElementById("start").value,
+        end:                document.getElementById("end").value,
+        granularity:        document.getElementById("granularity").value,
+        stop_pips:          parseFloat(document.getElementById("stop_pips").value),
+        take_profit_ratio:  parseFloat(document.getElementById("tp_ratio").value),
+        confidence_min:     parseFloat(document.getElementById("conf_min").value),
+        confluence_min:     parseFloat(document.getElementById("confl_min").value),
+        initial_balance:    parseFloat(document.getElementById("balance").value),
+        risk_pct:           parseFloat(document.getElementById("risk_pct").value),
+      };
+
+      try {
+        const resp = await fetch("/api/backtest", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify(payload),
+        });
+        const data = await resp.json();
+        btn.disabled = false;
+        btn.textContent = "Run Backtest";
+
+        if (data.error) {
+          document.getElementById("results").innerHTML =
+            `<div class="card"><div class="error-box">${data.error}</div></div>`;
+          return;
+        }
+        renderResults(data);
+      } catch (e) {
+        btn.disabled = false;
+        btn.textContent = "Run Backtest";
+        document.getElementById("results").innerHTML =
+          `<div class="card"><div class="error-box">${e}</div></div>`;
+      }
+    }
+
+    function renderResults(data) {
+      const s = data.summary;
+      const pnlClass = s.total_pnl >= 0 ? "pos" : "neg";
+      const retClass = s.return_pct >= 0 ? "pos" : "neg";
+
+      const html = `
+        <div class="summary-grid">
+          <div class="stat">
+            <div class="stat-label">Total trades</div>
+            <div class="stat-value neutral">${s.total_trades}</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">Win rate</div>
+            <div class="stat-value ${s.win_rate >= 50 ? 'pos' : 'neg'}">${s.win_rate}%</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">Net P&amp;L</div>
+            <div class="stat-value ${pnlClass}">$${s.total_pnl.toLocaleString()}</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">Return</div>
+            <div class="stat-value ${retClass}">${s.return_pct}%</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">Max drawdown</div>
+            <div class="stat-value neg">${s.max_drawdown}%</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">Sharpe ratio</div>
+            <div class="stat-value ${s.sharpe >= 1 ? 'pos' : 'neutral'}">${s.sharpe}</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">Avg win</div>
+            <div class="stat-value pos">$${s.avg_win}</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">Avg loss</div>
+            <div class="stat-value neg">$${s.avg_loss}</div>
+          </div>
+        </div>
+
+        <div class="card" style="margin-bottom:20px">
+          <h2>Equity Curve — ${data.pair} ${data.start} → ${data.end}</h2>
+          <div class="chart-wrap"><canvas id="equity-chart"></canvas></div>
+        </div>
+
+        <div class="card">
+          <h2>Trade Log (${s.total_trades} trades)</h2>
+          ${s.total_trades === 0 ? '<div class="empty">No trades taken — try lowering confidence or confluence minimums.</div>' : `
+          <div style="overflow-x:auto">
+          <table>
+            <thead>
+              <tr>
+                <th>Entry</th><th>Exit</th><th>Dir</th>
+                <th>Entry px</th><th>Exit px</th>
+                <th>Pips</th><th>P&amp;L</th><th>Exit</th><th>Equity</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${data.trades.map(t => `
+                <tr>
+                  <td>${t.entry_time.slice(0,16)}</td>
+                  <td>${t.exit_time.slice(0,16)}</td>
+                  <td class="${t.direction.toLowerCase()}">${t.direction}</td>
+                  <td>${t.entry_price}</td>
+                  <td>${t.exit_price}</td>
+                  <td class="${t.pnl_pips >= 0 ? 'pos' : 'neg'}">${t.pnl_pips > 0 ? '+' : ''}${t.pnl_pips}</td>
+                  <td class="${t.pnl_amt >= 0 ? 'pos' : 'neg'}">${t.pnl_amt >= 0 ? '+' : ''}$${t.pnl_amt}</td>
+                  <td class="${t.exit_reason === 'TP' ? 'tp-exit' : 'sl-exit'}">${t.exit_reason}</td>
+                  <td>$${t.equity.toLocaleString()}</td>
+                </tr>`).join("")}
+            </tbody>
+          </table>
+          </div>`}
+        </div>`;
+
+      document.getElementById("results").innerHTML = html;
+
+      // Equity chart
+      const ctx = document.getElementById("equity-chart").getContext("2d");
+      if (equityChart) equityChart.destroy();
+      const curve = data.equity_curve;
+      const step  = Math.max(1, Math.floor(curve.length / 300));
+      const labels = curve.filter((_, i) => i % step === 0).map(p => p.time.slice(0, 10));
+      const values = curve.filter((_, i) => i % step === 0).map(p => p.equity);
+
+      equityChart = new Chart(ctx, {
+        type: "line",
+        data: {
+          labels,
+          datasets: [{
+            data: values,
+            borderColor: "#f59e0b",
+            borderWidth: 1.5,
+            pointRadius: 0,
+            tension: 0.2,
+            fill: true,
+            backgroundColor: "rgba(245,158,11,0.08)",
+          }],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { ticks: { color: "#475569", maxTicksLimit: 8 }, grid: { color: "#1e293b" } },
+            y: { ticks: { color: "#475569", callback: v => "$" + v.toLocaleString() }, grid: { color: "#1e293b" } },
+          },
+        },
+      });
+    }
+  </script>
+</body>
+</html>

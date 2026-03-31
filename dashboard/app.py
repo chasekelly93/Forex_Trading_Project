@@ -788,7 +788,7 @@ def _background_sync():
 
 def _scheduler_error_listener(event):
     """Log APScheduler job failures — prevents silent failures in background jobs."""
-    if event.exception:
+    if hasattr(event, "exception") and event.exception:
         print(f"[SCHEDULER ERROR] Job '{event.job_id}' failed: {event.exception}")
         import traceback
         traceback.print_tb(event.traceback)
@@ -817,7 +817,9 @@ def api_scheduler():
             _scheduler_enabled = bool(data["enabled"])
 
             if _scheduler_enabled:
-                _scheduler.remove_all_jobs()
+                # Remove only the auto_cycle job, keep background_sync running
+                if _scheduler.get_job("auto_cycle"):
+                    _scheduler.remove_job("auto_cycle")
                 _scheduler.add_job(
                     _scheduled_cycle,
                     "interval",
@@ -829,7 +831,8 @@ def api_scheduler():
                 )
                 _update_next_run()
             else:
-                _scheduler.remove_all_jobs()
+                if _scheduler.get_job("auto_cycle"):
+                    _scheduler.remove_job("auto_cycle")
                 _next_run_utc = None
 
     next_run_iso = _next_run_utc.isoformat() if _next_run_utc else None
@@ -838,6 +841,47 @@ def api_scheduler():
         "interval": _schedule_interval,
         "next_run": next_run_iso,
     })
+
+
+@app.route("/backtest")
+def backtest_page():
+    return render_template("backtest.html")
+
+
+@app.route("/api/backtest", methods=["POST"])
+def api_backtest():
+    data = request.get_json()
+    pair       = data.get("pair", "EUR_USD")
+    start      = data.get("start", "")
+    end        = data.get("end", "")
+    granularity = data.get("granularity", "H1")
+    stop_pips   = float(data.get("stop_pips", 20))
+    tp_ratio    = float(data.get("take_profit_ratio", 2.0))
+    conf_min    = float(data.get("confidence_min", 0.55))
+    confl_min   = float(data.get("confluence_min", 0.55))
+    balance     = float(data.get("initial_balance", 10000))
+    risk_pct    = float(data.get("risk_pct", 1.0))
+
+    if not start or not end:
+        return jsonify({"error": "start and end dates are required"}), 400
+
+    try:
+        from analysis.backtest import run_backtest
+        result = run_backtest(
+            pair=pair,
+            start=start,
+            end=end,
+            granularity=granularity,
+            stop_pips=stop_pips,
+            take_profit_ratio=tp_ratio,
+            confidence_min=conf_min,
+            confluence_min=confl_min,
+            initial_balance=balance,
+            risk_pct=risk_pct,
+        )
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 if __name__ == "__main__":
