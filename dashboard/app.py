@@ -872,11 +872,13 @@ def api_backtest_all():
         {"label": "H1 · 20pip · 2:1",  "granularity": "H1", "stop_pips": 20, "take_profit_ratio": 2.0, "confidence_min": 0.55, "confluence_min": 0.60},
     ]
 
+    import time
     results = []
     errors  = []
 
     for pair in PAIRS:
         for cfg in CONFIGS:
+            time.sleep(2)   # avoid OANDA rate limiting
             try:
                 r = run_backtest(
                     pair=pair,
