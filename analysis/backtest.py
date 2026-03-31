@@ -195,20 +195,21 @@ def run_backtest(
 
         window = df.iloc[max(0, i - 100): i + 1]
         try:
-            scored = score_candle(window, pair)
+            scored = score_candle(window)
         except Exception:
             equity_curve.append({"time": str(ts), "equity": round(equity, 2)})
             continue
 
-        sig_dir    = scored.get("direction")
-        confidence = scored.get("confidence", 0)
-        confluence = scored.get("confluence_score", 0)
+        raw_score = scored.get("score", 0)
 
-        if (
-            sig_dir in ("BUY", "SELL")
-            and confidence >= confidence_min
-            and confluence >= confluence_min
-        ):
+        if raw_score >= confluence_min and raw_score >= confidence_min:
+            sig_dir = "BUY"
+        elif raw_score <= -confluence_min and raw_score <= -confidence_min:
+            sig_dir = "SELL"
+        else:
+            sig_dir = "NO_TRADE"
+
+        if sig_dir in ("BUY", "SELL"):
             entry_raw = row["close"]
             if sig_dir == "BUY":
                 entry_price = entry_raw + slip
