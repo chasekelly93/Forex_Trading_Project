@@ -360,9 +360,7 @@
 
     async function runAll() {
       const btn = document.getElementById("all-btn");
-      btn.disabled = true; btn.textContent = "Running all pairs… (2–4 min)";
-      document.getElementById("results").innerHTML =
-        `<div class="card"><div class="spinner">Running ${7 * 3} backtests across all pairs and configurations…<br><br>This takes 2–4 minutes. Please wait.</div></div>`;
+      btn.disabled = true; btn.textContent = "Starting…";
 
       const payload = {
         start:           document.getElementById("start").value,
@@ -371,23 +369,52 @@
         risk_pct:        parseFloat(document.getElementById("risk_pct").value),
       };
 
+      let jobId;
       try {
         const resp = await fetch("/api/backtest-all", {
           method: "POST", headers: {"Content-Type": "application/json"},
           body: JSON.stringify(payload),
         });
         const data = await resp.json();
-        btn.disabled = false; btn.textContent = "Run Full Analysis";
         if (data.error) {
+          btn.disabled = false; btn.textContent = "Run Full Analysis";
           document.getElementById("results").innerHTML =
             `<div class="card"><div class="error-box">${data.error}</div></div>`; return;
         }
-        renderAll(data);
+        jobId = data.job_id;
       } catch (e) {
         btn.disabled = false; btn.textContent = "Run Full Analysis";
         document.getElementById("results").innerHTML =
-          `<div class="card"><div class="error-box">${e}</div></div>`;
+          `<div class="card"><div class="error-box">${e}</div></div>`; return;
       }
+
+      // Poll for results
+      const poll = setInterval(async () => {
+        try {
+          const r = await fetch(`/api/backtest-all/status/${jobId}`);
+          const job = await r.json();
+
+          if (job.status === "running" || job.status === "queued") {
+            btn.textContent = `Running… (${job.progress || "0/21"})`;
+            document.getElementById("results").innerHTML =
+              `<div class="card"><div class="spinner">Running full analysis — ${job.progress || "0"} of 21 complete.<br><br>Please wait, this takes 3–5 minutes.</div></div>`;
+          } else if (job.status === "done") {
+            clearInterval(poll);
+            btn.disabled = false; btn.textContent = "Run Full Analysis";
+            renderAll(job.result);
+          } else if (job.status === "error") {
+            clearInterval(poll);
+            btn.disabled = false; btn.textContent = "Run Full Analysis";
+            document.getElementById("results").innerHTML =
+              `<div class="card"><div class="error-box">${job.error}</div></div>`;
+          }
+        } catch (e) {
+          clearInterval(poll);
+          btn.disabled = false; btn.textContent = "Run Full Analysis";
+          document.getElementById("results").innerHTML =
+            `<div class="card"><div class="error-box">Lost connection while polling: ${e}</div></div>`;
+        }
+      }, 4000);
     }
 
     function renderAll(data) {

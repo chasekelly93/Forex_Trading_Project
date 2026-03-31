@@ -848,21 +848,13 @@ def backtest_page():
     return render_template("backtest.html")
 
 
-@app.route("/api/backtest-all", methods=["POST"])
-def api_backtest_all():
-    """
-    Run a full parameter sweep across all pairs and 3 configs.
-    Returns ranked results + a plain-English summary.
-    """
-    data  = request.get_json()
-    start = data.get("start", "")
-    end   = data.get("end", "")
-    balance  = float(data.get("initial_balance", 10000))
-    risk_pct = float(data.get("risk_pct", 1.0))
+# In-memory job store for full analysis runs
+_backtest_jobs = {}   # job_id → {status, progress, result, error}
 
-    if not start or not end:
-        return jsonify({"error": "start and end dates are required"}), 400
 
+def _run_backtest_all_job(job_id, start, end, balance, risk_pct):
+    """Background thread for full analysis sweep."""
+    import time
     from analysis.backtest import run_backtest
     from config import PAIRS
 
@@ -872,18 +864,19 @@ def api_backtest_all():
         {"label": "H1 · 20pip · 2:1",  "granularity": "H1", "stop_pips": 20, "take_profit_ratio": 2.0, "confidence_min": 0.55, "confluence_min": 0.60},
     ]
 
-    import time
+    total  = len(PAIRS) * len(CONFIGS)
+    done   = 0
     results = []
     errors  = []
 
+    _backtest_jobs[job_id]["status"] = "running"
+
     for pair in PAIRS:
         for cfg in CONFIGS:
-            time.sleep(2)   # avoid OANDA rate limiting
+            time.sleep(1)
             try:
                 r = run_backtest(
-                    pair=pair,
-                    start=start,
-                    end=end,
+                    pair=pair, start=start, end=end,
                     granularity=cfg["granularity"],
                     stop_pips=cfg["stop_pips"],
                     take_profit_ratio=cfg["take_profit_ratio"],
@@ -894,34 +887,28 @@ def api_backtest_all():
                 )
                 s = r["summary"]
                 results.append({
-                    "pair":         pair,
-                    "config":       cfg["label"],
-                    "granularity":  cfg["granularity"],
-                    "stop_pips":    cfg["stop_pips"],
-                    "tp_ratio":     cfg["take_profit_ratio"],
-                    "total_trades": s["total_trades"],
-                    "win_rate":     s["win_rate"],
-                    "total_pnl":    s["total_pnl"],
-                    "return_pct":   s["return_pct"],
-                    "max_drawdown": s["max_drawdown"],
-                    "sharpe":       s["sharpe"],
-                    "avg_win":      s["avg_win"],
-                    "avg_loss":     s["avg_loss"],
+                    "pair": pair, "config": cfg["label"],
+                    "granularity": cfg["granularity"],
+                    "stop_pips": cfg["stop_pips"], "tp_ratio": cfg["take_profit_ratio"],
+                    "total_trades": s["total_trades"], "win_rate": s["win_rate"],
+                    "total_pnl": s["total_pnl"], "return_pct": s["return_pct"],
+                    "max_drawdown": s["max_drawdown"], "sharpe": s["sharpe"],
+                    "avg_win": s["avg_win"], "avg_loss": s["avg_loss"],
                     "equity_curve": r["equity_curve"],
                 })
             except Exception as e:
                 errors.append(f"{pair} {cfg['label']}: {e}")
+            done += 1
+            _backtest_jobs[job_id]["progress"] = f"{done}/{total}"
 
     if not results:
-        return jsonify({"error": "All backtests failed", "details": errors}), 500
+        _backtest_jobs[job_id].update({"status": "error", "error": "All backtests failed"})
+        return
 
-    # Sort by Sharpe descending
     results.sort(key=lambda x: x["sharpe"], reverse=True)
 
-    # Generate plain-English summary
-    best    = results[0]
-    winners = [r for r in results if r["total_pnl"] > 0]
-    losers  = [r for r in results if r["total_pnl"] <= 0]
+    winners   = [r for r in results if r["total_pnl"] > 0]
+    losers    = [r for r in results if r["total_pnl"] <= 0]
     no_trades = [r for r in results if r["total_trades"] == 0]
 
     best_pairs = {}
@@ -929,53 +916,63 @@ def api_backtest_all():
         if r["total_pnl"] > 0:
             if r["pair"] not in best_pairs or r["sharpe"] > best_pairs[r["pair"]]["sharpe"]:
                 best_pairs[r["pair"]] = r
-
     top_pair = max(best_pairs.values(), key=lambda x: x["sharpe"]) if best_pairs else None
 
-    summary_lines = []
-    summary_lines.append(
-        f"Across {len(PAIRS)} pairs and {len(CONFIGS)} parameter configurations ({len(results)} total runs), "
+    lines = [
+        f"Across {len(PAIRS)} pairs and {len(CONFIGS)} configurations ({len(results)} total runs), "
         f"{len(winners)} were profitable and {len(losers)} were not."
-    )
-
+    ]
     if top_pair:
-        summary_lines.append(
+        lines.append(
             f"The strongest result was {top_pair['pair']} on {top_pair['config']} — "
-            f"{top_pair['win_rate']}% win rate, +{top_pair['return_pct']}% return, "
-            f"Sharpe {top_pair['sharpe']}. This pair/config combination has the best risk-adjusted edge in this period."
+            f"{top_pair['win_rate']}% win rate, +{top_pair['return_pct']}% return, Sharpe {top_pair['sharpe']}."
         )
-
     if no_trades:
-        nt_pairs = list({r["pair"] for r in no_trades})
-        summary_lines.append(
-            f"{', '.join(nt_pairs)} produced no signals at these confidence thresholds — "
-            f"the signal engine found no qualifying setups in those markets during this period."
-        )
+        nt = list({r["pair"] for r in no_trades})
+        lines.append(f"{', '.join(nt)} produced no signals at these thresholds.")
 
-    h4_results  = [r for r in results if r["granularity"] == "H4" and r["total_trades"] > 0]
-    h1_results  = [r for r in results if r["granularity"] == "H1" and r["total_trades"] > 0]
-    avg_h4_sharpe = sum(r["sharpe"] for r in h4_results) / len(h4_results) if h4_results else 0
-    avg_h1_sharpe = sum(r["sharpe"] for r in h1_results) / len(h1_results) if h1_results else 0
+    h4 = [r for r in results if r["granularity"] == "H4" and r["total_trades"] > 0]
+    h1 = [r for r in results if r["granularity"] == "H1" and r["total_trades"] > 0]
+    sh4 = sum(r["sharpe"] for r in h4) / len(h4) if h4 else 0
+    sh1 = sum(r["sharpe"] for r in h1) / len(h1) if h1 else 0
+    if h4 and h1:
+        winner_tf = "H4" if sh4 > sh1 else "H1"
+        lines.append(f"{winner_tf} timeframe outperformed on average (H4 Sharpe {sh4:.2f} vs H1 {sh1:.2f}).")
 
-    if h4_results and h1_results:
-        if avg_h4_sharpe > avg_h1_sharpe:
-            summary_lines.append(
-                f"H4 timeframe outperformed H1 on average (Sharpe {avg_h4_sharpe:.2f} vs {avg_h1_sharpe:.2f}), "
-                f"suggesting the signal engine performs better on slower, higher-quality setups."
-            )
-        else:
-            summary_lines.append(
-                f"H1 timeframe outperformed H4 on average (Sharpe {avg_h1_sharpe:.2f} vs {avg_h4_sharpe:.2f}), "
-                f"suggesting more frequent signals are working better in this period."
-            )
-
-    return jsonify({
-        "results":  results,
-        "summary":  " ".join(summary_lines),
-        "errors":   errors,
-        "start":    start,
-        "end":      end,
+    _backtest_jobs[job_id].update({
+        "status":  "done",
+        "result":  {"results": results, "summary": " ".join(lines),
+                    "errors": errors, "start": start, "end": end},
     })
+
+
+@app.route("/api/backtest-all", methods=["POST"])
+def api_backtest_all():
+    data     = request.get_json()
+    start    = data.get("start", "")
+    end      = data.get("end", "")
+    balance  = float(data.get("initial_balance", 10000))
+    risk_pct = float(data.get("risk_pct", 1.0))
+
+    if not start or not end:
+        return jsonify({"error": "start and end dates are required"}), 400
+
+    job_id = secrets.token_hex(8)
+    _backtest_jobs[job_id] = {"status": "queued", "progress": "0/21"}
+    threading.Thread(
+        target=_run_backtest_all_job,
+        args=(job_id, start, end, balance, risk_pct),
+        daemon=True,
+    ).start()
+    return jsonify({"job_id": job_id})
+
+
+@app.route("/api/backtest-all/status/<job_id>")
+def api_backtest_all_status(job_id):
+    job = _backtest_jobs.get(job_id)
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+    return jsonify(job)
 
 
 @app.route("/api/backtest", methods=["POST"])
