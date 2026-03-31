@@ -49,19 +49,17 @@ def _fetch_candles(pair: str, start: str, end: str, granularity: str) -> pd.Data
     env     = os.environ.get("OANDA_ENVIRONMENT", "practice")
     api     = OandaAPI(access_token=api_key, environment=env)
 
-    params = {
-        "granularity": granularity,
-        "from": f"{start}T00:00:00Z",
-        "to":   f"{end}T23:59:59Z",
-        "price": "M",
-        "count": 5000,
-    }
-
+    end_iso = f"{end}T23:59:59Z"
     all_candles = []
-    cursor = params["from"]
+    cursor = f"{start}T00:00:00Z"
 
     while True:
-        params["from"] = cursor
+        params = {
+            "granularity": granularity,
+            "from": cursor,
+            "to":   end_iso,
+            "price": "M",
+        }
         r = instruments.InstrumentsCandles(pair, params=params)
         api.request(r)
         candles = r.response.get("candles", [])
@@ -81,16 +79,16 @@ def _fetch_candles(pair: str, start: str, end: str, granularity: str) -> pd.Data
                 "volume": int(c.get("volume", 0)),
             })
 
+        # OANDA returns max 5000 candles per request — paginate if needed
         if len(candles) < 5000:
             break
 
-        # Advance cursor past last candle
         last_time = candles[-1]["time"][:19]
         dt = datetime.fromisoformat(last_time).replace(tzinfo=timezone.utc)
         dt += timedelta(minutes=_GRAN_MINUTES.get(granularity, 60))
         cursor = dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
-        if cursor >= params["to"]:
+        if cursor >= end_iso:
             break
 
     if not all_candles:
